@@ -5,14 +5,18 @@ on:
     branches: [main]
     paths:
       - '**.tf'
-      - 'modules/**'
+      - 'modules/**/*.tf'
       - '.github/workflows/terraform-*.yml'
+      - '!k8s-manifests/**'
+      - '!k8s-examples/**'
   push:
     branches: [main]
     paths:
       - '**.tf'
-      - 'modules/**'
+      - 'modules/**/*.tf'
       - '.github/workflows/terraform-*.yml'
+      - '!k8s-manifests/**'
+      - '!k8s-examples/**'
 
 jobs:
   terraform-check:
