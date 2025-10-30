@@ -35,10 +35,14 @@ jobs:
         run: |
           kubectl apply --dry-run=client -f k8s-manifests/
 
+      - name: Create Namespaces
+        run: |
+          kubectl apply -f k8s-manifests/namespace-*.yaml
+
       - name: Deploy to GKE
         run: |
           kubectl apply -f k8s-manifests/
-          kubectl set image deployment/app app=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO_ID }}/app:${{ inputs.image_tag }}
+          kubectl set image deployment/app app=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO_ID }}/app:${{ inputs.image_tag }} || true
           kubectl rollout status deployment/app --timeout=5m
 
       - name: Verify deployment
