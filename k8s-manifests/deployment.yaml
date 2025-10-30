@@ -19,7 +19,14 @@ spec:
       labels:
         app: myapp
     spec:
+      serviceAccountName: app-sa
       priorityClassName: low-priority
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       nodeSelector:
         workload-type: spot
       affinity:
@@ -35,6 +42,12 @@ spec:
       containers:
       - name: app
         image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false
         ports:
         - containerPort: 8080
           name: http

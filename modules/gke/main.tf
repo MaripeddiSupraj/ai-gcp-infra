@@ -36,6 +36,39 @@ resource "google_container_cluster" "primary" {
     network_policy_config {
       disabled = false
     }
+    gcp_filestore_csi_driver_config {
+      enabled = true
+    }
+  }
+
+  vertical_pod_autoscaling {
+    enabled = true
+  }
+
+  cluster_autoscaling {
+    enabled = true
+    autoscaling_profile = "OPTIMIZE_UTILIZATION"
+    resource_limits {
+      resource_type = "cpu"
+      minimum       = 2
+      maximum       = 20
+    }
+    resource_limits {
+      resource_type = "memory"
+      minimum       = 4
+      maximum       = 64
+    }
+  }
+
+  monitoring_config {
+    enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
+    managed_prometheus {
+      enabled = true
+    }
+  }
+
+  logging_config {
+    enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
   }
 
   network_policy {
@@ -49,6 +82,11 @@ resource "google_container_cluster" "primary" {
   }
 
   deletion_protection = false
+
+  security_posture_config {
+    mode               = "BASIC"
+    vulnerability_mode = "VULNERABILITY_BASIC"
+  }
 }
 
 # On-demand node pool for critical workloads
@@ -56,8 +94,12 @@ resource "google_container_node_pool" "on_demand" {
   name       = "${var.cluster_name}-on-demand"
   location   = var.region
   cluster    = google_container_cluster.primary.name
-  node_count = 1
   project    = var.project_id
+
+  autoscaling {
+    min_node_count = 1
+    max_node_count = 5
+  }
 
   node_config {
     machine_type = var.machine_type
@@ -109,8 +151,12 @@ resource "google_container_node_pool" "spot" {
   name       = "${var.cluster_name}-spot"
   location   = var.region
   cluster    = google_container_cluster.primary.name
-  node_count = var.node_count
   project    = var.project_id
+
+  autoscaling {
+    min_node_count = 1
+    max_node_count = 10
+  }
 
   node_config {
     machine_type = var.machine_type

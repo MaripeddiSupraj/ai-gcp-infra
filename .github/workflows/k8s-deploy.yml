@@ -44,13 +44,62 @@ jobs:
         run: |
           kubectl apply -f k8s-manifests/namespace-*.yaml
 
-      - name: Deploy to GKE
+      - name: Deploy Security & Network Policies
         run: |
-          find k8s-manifests/ -name '*.yaml' ! -name 'namespace-*.yaml' -exec kubectl apply -f {} \;
+          kubectl apply -f k8s-manifests/security/
+          kubectl apply -f k8s-manifests/network-policies/
+
+      - name: Deploy Core Resources
+        run: |
+          find k8s-manifests/ -name '*.yaml' ! -name 'namespace-*.yaml' ! -path '*/security/*' ! -path '*/network-policies/*' ! -path '*/ingress/*' ! -path '*/monitoring/*' -exec kubectl apply -f {} \;
+
+      - name: Update Image
+        id: update_image
+        run: |
           kubectl set image deployment/app app=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO_ID }}/app:${{ inputs.image_tag }} || true
+          kubectl set image deployment/app-critical -n prod app=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO_ID }}/app:${{ inputs.image_tag }} || true
+
+      - name: Wait for Rollout
+        id: rollout
+        run: |
           kubectl rollout status deployment/app --timeout=5m
+          kubectl rollout status deployment/app-critical -n prod --timeout=5m
+        continue-on-error: true
+
+      - name: Rollback on Failure
+        if: steps.rollout.outcome == 'failure'
+        run: |
+          echo "Deployment failed, rolling back..."
+          kubectl rollout undo deployment/app
+          kubectl rollout undo deployment/app-critical -n prod
+          exit 1
+
+      - name: Deploy Monitoring & Ingress
+        if: steps.rollout.outcome == 'success'
+        run: |
+          kubectl apply -f k8s-manifests/monitoring/ || true
+          kubectl apply -f k8s-manifests/ingress/ || true
 
       - name: Verify deployment
         run: |
-          kubectl get pods -l app=myapp
+          echo "=== Pods Status ==="
+          kubectl get pods -l app=myapp -o wide
+          kubectl get pods -n prod -l app=myapp-critical -o wide
+          
+          echo "=== Services ==="
           kubectl get svc app-service
+          
+          echo "=== HPA Status ==="
+          kubectl get hpa
+          
+          echo "=== PDB Status ==="
+          kubectl get pdb --all-namespaces
+          
+          echo "=== Network Policies ==="
+          kubectl get networkpolicies --all-namespaces
+
+      - name: Run Health Checks
+        run: |
+          for pod in $(kubectl get pods -l app=myapp -o name); do
+            kubectl exec $pod -- wget -q -O- http://localhost:8080/health || echo "Health check failed for $pod"
+          done

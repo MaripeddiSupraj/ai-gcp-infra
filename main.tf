@@ -63,3 +63,20 @@ module "gar" {
   format        = var.gar_format
   description   = var.gar_description
 }
+
+module "monitoring" {
+  source = "./modules/monitoring"
+
+  project_id  = var.project_id
+  alert_email = var.alert_email
+}
+
+module "workload_identity" {
+  source = "./modules/security"
+
+  project_id            = var.project_id
+  service_account_name  = "app-workload-identity"
+  namespace             = "default"
+  k8s_service_account   = "app-sa"
+  iam_roles             = var.workload_identity_roles
+}

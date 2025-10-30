@@ -90,3 +90,15 @@ variable "gar_description" {
   description = "Artifact Registry description"
   default     = "Docker repository for container images"
 }
+
+variable "alert_email" {
+  type        = string
+  description = "Email for monitoring alerts"
+  default     = "alerts@example.com"
+}
+
+variable "workload_identity_roles" {
+  type        = list(string)
+  description = "IAM roles for workload identity"
+  default     = ["roles/storage.objectViewer"]
+}
