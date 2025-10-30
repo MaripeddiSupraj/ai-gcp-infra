@@ -1,0 +1,5 @@
+project_id    = "your-gcp-project-id"
+region        = "us-central1"
+cluster_name  = "primary-cluster"
+network_name  = "gke-network"
+repository_id = "docker-repo"
