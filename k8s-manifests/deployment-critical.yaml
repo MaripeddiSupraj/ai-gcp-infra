@@ -15,6 +15,7 @@ spec:
       labels:
         app: myapp-critical
     spec:
+      priorityClassName: high-priority
       tolerations:
       - key: "workload-type"
         operator: "Equal"
@@ -22,6 +23,15 @@ spec:
         effect: "NoSchedule"
       nodeSelector:
         workload-type: on-demand
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: workload-type
+                operator: In
+                values:
+                - on-demand
       containers:
       - name: app
         image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest

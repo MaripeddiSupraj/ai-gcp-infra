@@ -19,8 +19,19 @@ spec:
       labels:
         app: myapp
     spec:
+      priorityClassName: low-priority
       nodeSelector:
         workload-type: spot
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: workload-type
+                operator: In
+                values:
+                - spot
       containers:
       - name: app
         image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest
