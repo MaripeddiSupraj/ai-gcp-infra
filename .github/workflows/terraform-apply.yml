@@ -5,8 +5,9 @@ on:
     branches: [main]
     paths:
       - '**.tf'
-      - 'modules/**/*.tf'
+      - 'modules/**'
       - '.github/workflows/terraform-*.yml'
+      - '!app/**'
       - '!k8s-manifests/**'
       - '!k8s-examples/**'
   workflow_dispatch:

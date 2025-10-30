@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'app/**'
+      - '.github/workflows/docker-build-push.yml'
   pull_request:
     branches: [main]
     paths:
       - 'app/**'
+      - '.github/workflows/docker-build-push.yml'
 
 jobs:
   docker-build-push:
