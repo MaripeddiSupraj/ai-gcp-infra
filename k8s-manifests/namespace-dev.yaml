@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    workload-type: spot
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-defaults
+  namespace: dev
+data:
+  tolerations: |
+    - key: "workload-type"
+      operator: "Equal"
+      value: "spot"
+      effect: "NoSchedule"
+  nodeSelector: |
+    workload-type: spot

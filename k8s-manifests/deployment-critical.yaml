@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-critical
+  namespace: prod
+  labels:
+    app: myapp-critical
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp-critical
+  template:
+    metadata:
+      labels:
+        app: myapp-critical
+    spec:
+      tolerations:
+      - key: "workload-type"
+        operator: "Equal"
+        value: "on-demand"
+        effect: "NoSchedule"
+      nodeSelector:
+        workload-type: on-demand
+      containers:
+      - name: app
+        image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

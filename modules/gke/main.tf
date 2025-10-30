@@ -122,12 +122,6 @@ resource "google_container_node_pool" "spot" {
       workload-type = "spot"
     }
 
-    taint {
-      key    = "workload-type"
-      value  = "spot"
-      effect = "NO_SCHEDULE"
-    }
-
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"
     ]
