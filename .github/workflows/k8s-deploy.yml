@@ -1,0 +1,47 @@
+name: Deploy to GKE
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      image_tag:
+        description: 'Docker image tag'
+        required: true
+        default: 'latest'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER_NAME }}
+          location: ${{ vars.GCP_REGION }}
+
+      - name: Validate manifests
+        run: |
+          kubectl apply --dry-run=client -f k8s-manifests/
+
+      - name: Deploy to GKE
+        run: |
+          kubectl apply -f k8s-manifests/
+          kubectl set image deployment/app app=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO_ID }}/app:${{ inputs.image_tag }}
+          kubectl rollout status deployment/app --timeout=5m
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods -l app=myapp
+          kubectl get svc app-service
