@@ -3,6 +3,10 @@ name: Terraform Plan
 on:
   pull_request:
     branches: [main]
+    paths:
+      - '**.tf'
+      - 'modules/**'
+      - '.github/workflows/terraform-*.yml'
 
 jobs:
   terraform-check:

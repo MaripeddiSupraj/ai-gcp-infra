@@ -2,14 +2,15 @@ name: Docker Build and Push
 
 on:
   push:
-    paths:
-      - 'app/**'
-      - 'app/Dockerfile'
     branches: [main]
-  pull_request:
     paths:
       - 'app/**'
-      - 'app/Dockerfile'
+      - '.github/workflows/docker-*.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/docker-*.yml'
 
 jobs:
   docker-build-push:

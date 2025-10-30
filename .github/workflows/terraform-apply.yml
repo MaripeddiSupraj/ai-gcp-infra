@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - '**.tf'
-      - '**.tfvars'
+      - 'modules/**'
       - '.github/workflows/terraform-*.yml'
   workflow_dispatch:
 
