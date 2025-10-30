@@ -3,11 +3,11 @@ output "network_name" {
 }
 
 output "cluster_name" {
-  value = module.gke.cluster_name
+  value = var.cluster_type == "standard" ? module.gke_standard[0].cluster_name : module.gke_autopilot[0].cluster_name
 }
 
 output "cluster_endpoint" {
-  value     = module.gke.cluster_endpoint
+  value     = var.cluster_type == "standard" ? module.gke_standard[0].cluster_endpoint : module.gke_autopilot[0].cluster_endpoint
   sensitive = true
 }
 

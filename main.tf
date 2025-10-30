@@ -29,7 +29,8 @@ module "network" {
   services_cidr = var.services_cidr
 }
 
-module "gke" {
+module "gke_standard" {
+  count  = var.cluster_type == "standard" ? 1 : 0
   source = "./modules/gke"
 
   project_id   = var.project_id
@@ -40,6 +41,17 @@ module "gke" {
   node_count   = var.node_count
   machine_type = var.machine_type
   disk_size_gb = var.disk_size_gb
+}
+
+module "gke_autopilot" {
+  count  = var.cluster_type == "autopilot" ? 1 : 0
+  source = "./modules/gke-autopilot"
+
+  project_id   = var.project_id
+  cluster_name = var.cluster_name
+  region       = var.region
+  network_id   = module.network.network_id
+  subnet_id    = module.network.subnet_id
 }
 
 module "gar" {
