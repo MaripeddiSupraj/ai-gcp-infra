@@ -1,4 +1,6 @@
 # Example: Deploy to spot nodes
+# Spot nodes are cost-effective (70% cheaper) but can be preempted
+# Use for fault-tolerant, stateless workloads
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,13 +15,22 @@ spec:
       labels:
         app: myapp
     spec:
+      # Tolerate spot node taint to schedule on spot instances
       tolerations:
       - key: "workload-type"
         operator: "Equal"
         value: "spot"
         effect: "NoSchedule"
+      # Prefer spot nodes for cost optimization
       nodeSelector:
         workload-type: spot
       containers:
       - name: app
         image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

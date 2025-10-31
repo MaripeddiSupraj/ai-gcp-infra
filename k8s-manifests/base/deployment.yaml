@@ -27,6 +27,13 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      # Tolerate spot nodes for cost-effective scheduling
+      tolerations:
+      - key: "workload-type"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+      # Prefer spot nodes for general workloads
       nodeSelector:
         workload-type: spot
       affinity:

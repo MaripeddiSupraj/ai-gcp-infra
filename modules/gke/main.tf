@@ -128,7 +128,13 @@ resource "google_container_node_pool" "spot" {
       cost-center   = "general"
     }
 
-    # NO taint - spot is default for all workloads
+    # Taint spot nodes to ensure workloads explicitly tolerate preemption
+    # Note: Terraform uses "NO_SCHEDULE", Kubernetes manifests use "NoSchedule" - both are correct
+    taint {
+      key    = "workload-type"
+      value  = "spot"
+      effect = "NO_SCHEDULE"
+    }
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"

@@ -1,0 +1,61 @@
+# Production-grade HPA for handling sudden traffic spikes
+# This configuration scales pods based on CPU and memory utilization
+# with optimized behavior for fast scale-up and gradual scale-down
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app-hpa-production
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: app
+  # Minimum replicas for high availability
+  minReplicas: 3
+  # Maximum replicas to handle traffic spikes
+  maxReplicas: 50
+  metrics:
+  # Primary metric: CPU utilization
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # Secondary metric: Memory utilization
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      # Wait 5 minutes before scaling down to avoid flapping
+      stabilizationWindowSeconds: 300
+      policies:
+      # Don't scale down more than 50% of current pods in 60 seconds
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      # Don't scale down more than 5 pods in 60 seconds
+      - type: Pods
+        value: 5
+        periodSeconds: 60
+      # Use the most conservative policy (slower scale-down)
+      selectPolicy: Min
+    scaleUp:
+      # Scale up immediately when threshold is breached
+      stabilizationWindowSeconds: 0
+      policies:
+      # Allow doubling pods in 30 seconds for sudden traffic
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      # Allow adding 10 pods in 30 seconds
+      - type: Pods
+        value: 10
+        periodSeconds: 30
+      # Use the most aggressive policy (faster scale-up)
+      selectPolicy: Max
