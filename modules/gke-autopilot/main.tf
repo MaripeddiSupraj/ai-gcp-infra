@@ -31,6 +31,8 @@ resource "google_container_cluster" "autopilot" {
   }
 
   # Binary authorization for enhanced security
+  # Note: Requires a Binary Authorization policy to be configured in the project
+  # If no policy exists, the default policy allows all images
   binary_authorization {
     evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
   }

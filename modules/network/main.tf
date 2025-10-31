@@ -22,6 +22,8 @@ resource "google_compute_subnetwork" "subnet" {
     ip_cidr_range = var.services_cidr
   }
 
+  # Enable VPC Flow Logs for network monitoring and security auditing
+  # Using 50% sampling rate for cost optimization while maintaining visibility
   log_config {
     aggregation_interval = "INTERVAL_5_SEC"
     flow_sampling        = 0.5
