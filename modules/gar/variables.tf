@@ -17,6 +17,10 @@ variable "format" {
   type        = string
   default     = "DOCKER"
   description = "The format of the repository (DOCKER, MAVEN, NPM, PYTHON, APT, YUM, etc.)"
+  validation {
+    condition     = contains(["DOCKER", "MAVEN", "NPM", "PYTHON", "APT", "YUM", "GO", "KFP"], var.format)
+    error_message = "The format must be one of: DOCKER, MAVEN, NPM, PYTHON, APT, YUM, GO, KFP."
+  }
 }
 
 variable "description" {

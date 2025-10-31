@@ -16,6 +16,10 @@ variable "subnet_name" {
 variable "subnet_cidr" {
   type        = string
   description = "The CIDR range for the subnet (e.g., 10.0.0.0/24)"
+  validation {
+    condition     = can(cidrhost(var.subnet_cidr, 0))
+    error_message = "The subnet_cidr must be a valid CIDR notation (e.g., 10.0.0.0/24)."
+  }
 }
 
 variable "region" {
@@ -26,9 +30,17 @@ variable "region" {
 variable "pods_cidr" {
   type        = string
   description = "The secondary CIDR range for GKE pods (e.g., 10.1.0.0/16)"
+  validation {
+    condition     = can(cidrhost(var.pods_cidr, 0))
+    error_message = "The pods_cidr must be a valid CIDR notation (e.g., 10.1.0.0/16)."
+  }
 }
 
 variable "services_cidr" {
   type        = string
   description = "The secondary CIDR range for GKE services (e.g., 10.2.0.0/16)"
+  validation {
+    condition     = can(cidrhost(var.services_cidr, 0))
+    error_message = "The services_cidr must be a valid CIDR notation (e.g., 10.2.0.0/16)."
+  }
 }

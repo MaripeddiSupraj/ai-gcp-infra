@@ -34,4 +34,10 @@ resource "google_container_cluster" "autopilot" {
   binary_authorization {
     evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
   }
+
+  # Resource labels for cost management and organization
+  resource_labels = {
+    cluster_type = "autopilot"
+    managed_by   = "terraform"
+  }
 }
