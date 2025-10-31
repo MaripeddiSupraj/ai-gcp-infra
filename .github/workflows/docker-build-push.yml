@@ -100,11 +100,3 @@ jobs:
         run: |
           docker push ${{ steps.meta.outputs.image }}:${{ github.sha }}
           docker push ${{ steps.meta.outputs.image }}:latest
-
-  trigger-deploy:
-    needs: docker-build-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/k8s-deploy.yml
-    secrets: inherit
-    with:
-      image_tag: latest
