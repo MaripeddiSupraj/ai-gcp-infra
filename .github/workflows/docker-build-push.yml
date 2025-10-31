@@ -6,11 +6,13 @@ on:
     paths:
       - 'app/**'
       - 'Dockerfile'
+      - '!.github/**'
   pull_request:
     branches: [main, dev]
     paths:
       - 'app/**'
       - 'Dockerfile'
+      - '!.github/**'
 
 jobs:
   docker-build-push:
