@@ -31,8 +31,15 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Load Config
+        id: config
+        run: |
+          echo "project_id=$(grep 'project_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
+          echo "region=$(grep 'region' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
+          echo "repository_id=$(grep 'repository_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
+
       - name: Configure Docker
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+        run: gcloud auth configure-docker ${{ steps.config.outputs.region }}-docker.pkg.dev
 
       - name: Build Docker Image
         uses: docker/build-push-action@v5
@@ -41,15 +48,15 @@ jobs:
           push: false
           load: true
           tags: |
-            us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:${{ github.sha }}
-            us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest
+            ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
+            ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:${{ github.sha }}
+          image-ref: ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -64,7 +71,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (table output)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:${{ github.sha }}
+          image-ref: ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
@@ -72,7 +79,7 @@ jobs:
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:${{ github.sha }}
+          image: ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
           format: spdx-json
           output-file: sbom.spdx.json
 
@@ -85,8 +92,9 @@ jobs:
       - name: Push Docker Image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          docker push us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:${{ github.sha }}
-          docker push us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest
+          IMAGE_BASE="${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app"
+          docker push ${IMAGE_BASE}:${{ github.sha }}
+          docker push ${IMAGE_BASE}:latest
 
   trigger-deploy:
     needs: docker-build-push
