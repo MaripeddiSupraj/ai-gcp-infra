@@ -1,6 +1,7 @@
+---
 name: Terraform
 
-on:
+'on':
   push:
     branches: [main, dev]
     paths:
@@ -70,13 +71,14 @@ jobs:
         id: plan
         run: |
           cd environments/dev
-          terraform plan -no-color -compact-warnings -lock-timeout=5m -out=tfplan -detailed-exitcode || EXIT_CODE=$?
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          elif [ $EXIT_CODE -eq 2 ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+          terraform plan -no-color -compact-warnings \
+            -lock-timeout=5m -out=tfplan -detailed-exitcode || EXIT_CODE=$?
+          if [ "$EXIT_CODE" -eq 0 ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          elif [ "$EXIT_CODE" -eq 2 ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           else
-            exit $EXIT_CODE
+            exit "$EXIT_CODE"
           fi
 
       - name: Upload Plan
@@ -92,11 +94,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const hasChanges = '${{ steps.plan.outputs.has_changes }}';
+            const status = hasChanges === 'true'
+              ? '⚠️ Changes detected'
+              : '✅ No changes';
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '## Terraform Plan\n\n${{ steps.plan.outputs.has_changes == 'true' && '⚠️ Changes detected' || '✅ No changes' }}\n\nCheck the Actions tab for details.'
+              body: `## Terraform Plan\n\n${status}\n\nCheck the Actions tab for details.`
             });
 
   apply:
@@ -104,11 +110,13 @@ jobs:
     if: |
       needs.plan.outputs.has_changes == 'true' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'))
+       (github.event_name == 'workflow_dispatch' &&
+        github.event.inputs.action == 'apply'))
     runs-on: ubuntu-latest
     environment: production
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -130,4 +138,6 @@ jobs:
           path: environments/dev
 
       - name: Terraform Apply
-        run: cd environments/dev && terraform apply -no-color -auto-approve tfplan
+        run: |
+          cd environments/dev
+          terraform apply -no-color -auto-approve tfplan

@@ -1,6 +1,7 @@
+---
 name: Docker Build and Push
 
-on:
+'on':
   push:
     branches: [main, dev]
     paths:
@@ -35,9 +36,11 @@ jobs:
       - name: Set Config
         id: config
         run: |
-          echo "project_id=hyperbola-476507" >> $GITHUB_OUTPUT
-          echo "region=us-central1" >> $GITHUB_OUTPUT
-          echo "repository_id=docker-repo" >> $GITHUB_OUTPUT
+          {
+            echo "project_id=hyperbola-476507"
+            echo "region=us-central1"
+            echo "repository_id=docker-repo"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -50,14 +53,21 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker
-        run: gcloud auth configure-docker ${{ steps.config.outputs.region }}-docker.pkg.dev
+        run: |
+          gcloud auth configure-docker \
+            "${{ steps.config.outputs.region }}-docker.pkg.dev"
 
       - name: Docker meta
         id: meta
         run: |
-          IMAGE_BASE="${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app"
-          echo "tags=${IMAGE_BASE}:${{ github.sha }},${IMAGE_BASE}:latest" >> $GITHUB_OUTPUT
-          echo "image=${IMAGE_BASE}" >> $GITHUB_OUTPUT
+          REGION="${{ steps.config.outputs.region }}"
+          PROJECT="${{ steps.config.outputs.project_id }}"
+          REPO="${{ steps.config.outputs.repository_id }}"
+          IMAGE_BASE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/app"
+          {
+            echo "tags=${IMAGE_BASE}:${{ github.sha }},${IMAGE_BASE}:latest"
+            echo "image=${IMAGE_BASE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build Docker Image
         uses: docker/build-push-action@v5
@@ -110,10 +120,12 @@ jobs:
 
       - name: Push Docker Image
         if: |
-          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.push_image == 'true')
+          (github.event_name == 'push' &&
+           (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) ||
+          (github.event_name == 'workflow_dispatch' &&
+           github.event.inputs.push_image == 'true')
         run: |
-          docker push ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          docker push "${{ steps.meta.outputs.image }}:${{ github.sha }}"
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            docker push ${{ steps.meta.outputs.image }}:latest
+            docker push "${{ steps.meta.outputs.image }}:latest"
           fi
