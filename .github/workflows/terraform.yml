@@ -11,18 +11,29 @@ on:
     paths:
       - '**.tf'
       - 'modules/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+        default: 'plan'
 
 concurrency:
   group: terraform-state
   cancel-in-progress: false
 
 jobs:
-  terraform:
+  plan:
     runs-on: ubuntu-latest
-    environment: production
     permissions:
       contents: read
       pull-requests: write
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,8 +68,23 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -out=tfplan
-        continue-on-error: true
+        run: |
+          terraform plan -no-color -out=tfplan -detailed-exitcode || EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          elif [ $EXIT_CODE -eq 2 ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            exit $EXIT_CODE
+          fi
+
+      - name: Upload Plan
+        if: steps.plan.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.sha }}
+          path: tfplan
+          retention-days: 7
 
       - name: Comment PR
         if: github.event_name == 'pull_request'
@@ -69,9 +95,37 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '## Terraform Plan\n\n${{ steps.plan.outcome == 'success' && '✅ Plan successful' || '❌ Plan failed' }}\n\nCheck the Actions tab for details.'
+              body: '## Terraform Plan\n\n${{ steps.plan.outputs.has_changes == 'true' && '⚠️ Changes detected' || '✅ No changes' }}\n\nCheck the Actions tab for details.'
             });
 
+  apply:
+    needs: plan
+    if: |
+      needs.plan.outputs.has_changes == 'true' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'))
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ github.sha }}
+
       - name: Terraform Apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve tfplan
