@@ -1,4 +1,6 @@
 # Example: Deploy to on-demand nodes (critical workloads)
+# On-demand nodes are more expensive but highly reliable
+# Use for stateful, critical, or latency-sensitive workloads
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,13 +15,35 @@ spec:
       labels:
         app: myapp-critical
     spec:
+      # Tolerate on-demand taint to schedule on reliable instances
       tolerations:
       - key: "workload-type"
         operator: "Equal"
         value: "on-demand"
         effect: "NoSchedule"
+      # Require on-demand nodes for critical workloads
       nodeSelector:
         workload-type: on-demand
+      # Add pod anti-affinity for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - myapp-critical
+              topologyKey: kubernetes.io/hostname
       containers:
       - name: app
         image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:latest
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
