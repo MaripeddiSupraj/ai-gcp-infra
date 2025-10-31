@@ -27,3 +27,8 @@ variable "disk_size_gb" {
   type    = number
   default = 50
 }
+
+variable "environment" {
+  type    = string
+  default = "production"
+}

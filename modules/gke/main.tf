@@ -45,19 +45,9 @@ resource "google_container_cluster" "primary" {
     enabled = true
   }
 
+  # Disable cluster autoscaling - use node pool autoscaling instead
   cluster_autoscaling {
-    enabled             = true
-    autoscaling_profile = "OPTIMIZE_UTILIZATION"
-    resource_limits {
-      resource_type = "cpu"
-      minimum       = 2
-      maximum       = 20
-    }
-    resource_limits {
-      resource_type = "memory"
-      minimum       = 4
-      maximum       = 64
-    }
+    enabled = false
   }
 
   monitoring_config {
@@ -88,6 +78,26 @@ resource "google_container_cluster" "primary" {
     vulnerability_mode = "VULNERABILITY_BASIC"
   }
 
+  # Cost allocation and management
+  resource_labels = {
+    environment = var.environment
+    managed_by  = "terraform"
+  }
+
+  # Private cluster for security (optional - can be enabled via variable)
+  # private_cluster_config {
+  #   enable_private_nodes    = true
+  #   enable_private_endpoint = false
+  #   master_ipv4_cidr_block  = "172.16.0.0/28"
+  # }
+
+  # master_authorized_networks_config {
+  #   cidr_blocks {
+  #     cidr_block   = "0.0.0.0/0"
+  #     display_name = "All networks"
+  #   }
+  # }
+
   # Backup configuration for disaster recovery
   # Note: Requires GKE Backup API to be enabled
   # lifecycle {
@@ -95,33 +105,30 @@ resource "google_container_cluster" "primary" {
   # }
 }
 
-# On-demand node pool for critical workloads
-resource "google_container_node_pool" "on_demand" {
-  name     = "${var.cluster_name}-on-demand"
+# Spot node pool - DEFAULT for cost savings (70% cheaper)
+resource "google_container_node_pool" "spot" {
+  name     = "${var.cluster_name}-spot"
   location = var.region
   cluster  = google_container_cluster.primary.name
   project  = var.project_id
 
   autoscaling {
-    min_node_count = 1
-    max_node_count = 5
+    min_node_count = 2
+    max_node_count = 20
   }
 
   node_config {
-    machine_type = var.machine_type
-    disk_size_gb = var.disk_size_gb
+    machine_type = "e2-medium"  # Cost-effective
+    disk_size_gb = 50
     disk_type    = "pd-standard"
-    spot         = false
+    spot         = true
 
     labels = {
-      workload-type = "on-demand"
+      workload-type = "spot"
+      cost-center   = "general"
     }
 
-    taint {
-      key    = "workload-type"
-      value  = "on-demand"
-      effect = "NO_SCHEDULE"
-    }
+    # NO taint - spot is default for all workloads
 
     oauth_scopes = [
       "https://www.googleapis.com/auth/cloud-platform"
@@ -152,26 +159,34 @@ resource "google_container_node_pool" "on_demand" {
   }
 }
 
-# Spot node pool for cost-effective workloads
-resource "google_container_node_pool" "spot" {
-  name     = "${var.cluster_name}-spot"
+# On-demand node pool - ONLY for critical workloads
+resource "google_container_node_pool" "on_demand" {
+  name     = "${var.cluster_name}-on-demand"
   location = var.region
   cluster  = google_container_cluster.primary.name
   project  = var.project_id
 
   autoscaling {
     min_node_count = 1
-    max_node_count = 10
+    max_node_count = 5
   }
 
   node_config {
-    machine_type = var.machine_type
-    disk_size_gb = var.disk_size_gb
-    disk_type    = "pd-standard"
-    spot         = true
+    machine_type = "n2-standard-2"  # Better performance
+    disk_size_gb = 100
+    disk_type    = "pd-ssd"  # Faster disk
+    spot         = false
 
     labels = {
-      workload-type = "spot"
+      workload-type = "on-demand"
+      cost-center   = "critical"
+    }
+
+    # Taint so only critical pods schedule here
+    taint {
+      key    = "workload-type"
+      value  = "on-demand"
+      effect = "NO_SCHEDULE"
     }
 
     oauth_scopes = [
