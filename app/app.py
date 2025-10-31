@@ -14,5 +14,9 @@ def health():
 def version():
     return {'version': '1.0.1', 'app': 'gke-demo'}
 
+@app.route('/hello')
+def hello_endpoint():
+    return {'message': 'Hello!', 'greeting': 'Welcome to the GKE Demo Application'}
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
