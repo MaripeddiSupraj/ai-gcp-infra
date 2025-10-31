@@ -1,391 +1,77 @@
-name: Terraform Infrastructure Pipeline
+name: Terraform
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - '**.tf'
       - 'modules/**'
-      - 'terraform.tfvars'
-      - '!app/**'
-      - '!k8s-manifests/**'
-      - '!k8s-examples/**'
-
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - '**.tf'
       - 'modules/**'
-      - 'terraform.tfvars'
-      - '!app/**'
-      - '!k8s-manifests/**'
-      - '!k8s-examples/**'
-
-  workflow_dispatch:
-    inputs:
-      action:
-        description: 'Terraform action'
-        required: true
-        type: choice
-        options:
-          - plan
-          - apply
-          - destroy
-        default: 'plan'
 
 concurrency:
-  group: terraform-apply
+  group: terraform-state
   cancel-in-progress: false
 
 jobs:
-  # Detect if this is a PR or push
-  detect-change-type:
+  terraform:
     runs-on: ubuntu-latest
-    outputs:
-      is-pr: ${{ github.event_name == 'pull_request' }}
-      is-push: ${{ github.event_name == 'push' }}
-      is-manual: ${{ github.event_name == 'workflow_dispatch' }}
-      action: ${{ steps.action.outputs.action }}
-    steps:
-      - name: Determine action
-        id: action
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            ACTION="${{ github.event.inputs.action }}"
-          elif [ "${{ github.event_name }}" == "pull_request" ]; then
-            ACTION="plan"
-          else
-            ACTION="apply"
-          fi
-          echo "action=$ACTION" >> $GITHUB_OUTPUT
-          
-          echo "📋 Event Type: ${{ github.event_name }}"
-          echo "🎯 Action: $ACTION"
-
-  # Validate Terraform code
-  terraform-validate:
-    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.0
 
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-        continue-on-error: true
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Terraform Init (backend=false)
-        run: terraform init -backend=false
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format
+        run: terraform fmt -check
+        continue-on-error: true
 
       - name: Terraform Validate
         run: terraform validate
 
       - name: TFLint Setup
         uses: terraform-linters/setup-tflint@v4
+
+      - name: TFLint
+        run: tflint --init && tflint --recursive
+
+      - name: tfsec Security Scan
+        uses: aquasecurity/tfsec-action@v1.0.0
         with:
-          tflint_version: latest
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: TFLint Init
-        run: tflint --init
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: TFLint Check
-        run: tflint --recursive
-
-      - name: Checkov Security Scan
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: .
-          quiet: true
           soft_fail: true
-          framework: terraform
-          output_format: sarif
-          output_file_path: reports/results.sarif
-        continue-on-error: true
-
-      - name: Upload Checkov results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: reports/results.sarif
-        continue-on-error: true
-
-  # Plan Terraform changes
-  terraform-plan:
-    needs: terraform-validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      pull-requests: write
-      id-token: write
-    outputs:
-      plan-exit-code: ${{ steps.plan.outputs.exitcode }}
-      has-changes: ${{ steps.plan.outputs.has-changes }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Terraform Init
-        run: terraform init
 
       - name: Terraform Plan
         id: plan
-        run: |
-          terraform plan -out=tfplan -detailed-exitcode || EXITCODE=$?
-          
-          case $EXITCODE in
-            0)
-              echo "exitcode=0" >> $GITHUB_OUTPUT
-              echo "has-changes=false" >> $GITHUB_OUTPUT
-              echo "✅ No changes"
-              ;;
-            1)
-              echo "exitcode=1" >> $GITHUB_OUTPUT
-              echo "has-changes=false" >> $GITHUB_OUTPUT
-              echo "❌ Error in plan"
-              exit 1
-              ;;
-            2)
-              echo "exitcode=2" >> $GITHUB_OUTPUT
-              echo "has-changes=true" >> $GITHUB_OUTPUT
-              echo "⚠️ Changes detected"
-              ;;
-          esac
+        run: terraform plan -no-color -out=tfplan
         continue-on-error: true
 
-      - name: Generate Plan JSON
-        if: always()
-        run: |
-          terraform show -json tfplan > tfplan.json || true
-
-      - name: Create Plan Checksum
-        if: steps.plan.outputs.has-changes == 'true'
-        run: |
-          sha256sum tfplan > tfplan.sha256
-          echo "Plan checksum created"
-
-      - name: Upload Plan Artifacts
-        if: steps.plan.outputs.has-changes == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan-${{ github.sha }}
-          path: |
-            tfplan
-            tfplan.sha256
-            tfplan.json
-          retention-days: 7
-
-      - name: Comment PR with Plan
-        if: github.event_name == 'pull_request' && always()
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            let planOutput = '';
-            try {
-              planOutput = fs.readFileSync('tfplan.json', 'utf8');
-            } catch (e) {
-              planOutput = 'No plan output available';
-            }
-            
-            const body = `## 📋 Terraform Plan Review
-            
-            **Status:** ${{ steps.plan.outputs.has-changes == 'true' && '⚠️ Changes Detected' || '✅ No Changes' }}
-            **Exit Code:** ${{ steps.plan.outputs.plan-exit-code }}
-            
-            Please review the changes and approve if correct.`;
-            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              body: '## Terraform Plan\n\n${{ steps.plan.outcome == 'success' && '✅ Plan successful' || '❌ Plan failed' }}\n\nCheck the Actions tab for details.'
             });
 
-  # Approval gate for production changes
-  approval-gate:
-    needs: terraform-plan
-    if: |
-      github.event_name == 'push' && 
-      needs.terraform-plan.outputs.has-changes == 'true'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: 🚨 Waiting for Approval
-        run: |
-          echo "⏳ Terraform changes detected and waiting for approval"
-          echo "Repository: ${{ github.repository }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Commit: ${{ github.sha }}"
-          echo ""
-          echo "Please review the Terraform plan and approve to apply changes"
-
-  # Apply Terraform changes (only on main branch push)
-  terraform-apply:
-    needs: [detect-change-type, terraform-plan, approval-gate]
-    if: |
-      always() &&
-      github.event_name == 'push' && 
-      github.ref == 'refs/heads/main' &&
-      needs.terraform-plan.outputs.has-changes == 'true' &&
-      (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Download Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan-${{ github.sha }}
-
-      - name: Verify Plan Checksum
-        run: |
-          sha256sum -c tfplan.sha256
-          if [ $? -ne 0 ]; then
-            echo "❌ Plan checksum verification failed!"
-            exit 1
-          fi
-          echo "✅ Plan verified"
-
-      - name: Show Plan Summary
-        run: terraform show -no-color tfplan
-
       - name: Terraform Apply
-        id: apply
-        run: |
-          echo "🚀 Applying Terraform changes..."
-          terraform apply -no-color -auto-approve tfplan
-          echo "apply-success=true" >> $GITHUB_OUTPUT
-          echo "✅ Apply completed"
-        continue-on-error: true
-
-      - name: Export Outputs
-        if: steps.apply.outputs.apply-success == 'true'
-        run: |
-          echo "## Infrastructure Outputs" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          terraform output -json >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload Outputs
-        if: steps.apply.outputs.apply-success == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-outputs-${{ github.sha }}
-          path: |
-            terraform.tfstate
-          retention-days: 30
-        continue-on-error: true
-
-      - name: 🎉 Success Summary
-        if: steps.apply.outputs.apply-success == 'true'
-        run: |
-          echo "## ✅ Terraform Apply Successful"
-          echo "Timestamp: $(date)"
-          echo "Infrastructure has been updated"
-
-      - name: ❌ Failure Alert
-        if: failure()
-        run: |
-          echo "## ❌ Terraform Apply Failed"
-          echo "Please check the logs and retry"
-          exit 1
-
-  # Manual destroy (requires workflow_dispatch)
-  terraform-destroy:
-    needs: detect-change-type
-    if: |
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.action == 'destroy'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    environment: production
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 🚨 Confirm Destroy
-        run: |
-          echo "⚠️ WARNING: You are about to destroy infrastructure!"
-          echo "This action requires environment approval"
-          echo "Proceeding after approval only..."
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Terraform Destroy
-        run: |
-          terraform destroy -auto-approve
-          echo "✅ Infrastructure destroyed"
-
-  # Summary
-  workflow-summary:
-    needs: [detect-change-type, terraform-validate, terraform-plan, terraform-apply]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate Summary
-        run: |
-          echo "## 📊 Terraform Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Event Type:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Action:** ${{ needs.detect-change-type.outputs.action }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Job Results" >> $GITHUB_STEP_SUMMARY
-          echo "- Validation: ${{ needs.terraform-validate.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Plan: ${{ needs.terraform-plan.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Apply: ${{ needs.terraform-apply.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ needs.terraform-plan.outputs.has-changes }}" == "true" ]; then
-            echo "⚠️ **Changes Detected:** Yes" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "✅ **Changes Detected:** No" >> $GITHUB_STEP_SUMMARY
-          fi
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve tfplan
