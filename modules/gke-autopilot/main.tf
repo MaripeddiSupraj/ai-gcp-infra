@@ -24,4 +24,14 @@ resource "google_container_cluster" "autopilot" {
   }
 
   deletion_protection = false
+
+  # Enable workload identity for better security
+  workload_identity_config {
+    workload_pool = "${var.project_id}.svc.id.goog"
+  }
+
+  # Binary authorization for enhanced security
+  binary_authorization {
+    evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
+  }
 }

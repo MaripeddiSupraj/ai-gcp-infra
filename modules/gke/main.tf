@@ -122,6 +122,7 @@ resource "google_container_node_pool" "spot" {
     disk_size_gb = 50
     disk_type    = "pd-standard"
     spot         = true
+    image_type   = "COS_CONTAINERD"
 
     labels = {
       workload-type = "spot"
@@ -176,6 +177,7 @@ resource "google_container_node_pool" "on_demand" {
     disk_size_gb = 100
     disk_type    = "pd-ssd" # Faster disk
     spot         = false
+    image_type   = "COS_CONTAINERD"
 
     labels = {
       workload-type = "on-demand"
