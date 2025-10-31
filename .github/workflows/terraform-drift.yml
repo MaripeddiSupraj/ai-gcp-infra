@@ -5,6 +5,10 @@ on:
     - cron: '0 8 * * 1-5'  # Weekdays at 8 AM UTC
   workflow_dispatch:
 
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
+
 jobs:
   detect-drift:
     runs-on: ubuntu-latest

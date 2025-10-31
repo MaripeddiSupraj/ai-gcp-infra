@@ -9,21 +9,89 @@ on:
       - '!app/**'
       - '!k8s-manifests/**'
       - '!k8s-examples/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.tf'
+      - 'modules/**'
+      - '!app/**'
+      - '!k8s-manifests/**'
+      - '!k8s-examples/**'
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+      action:
+        description: 'Terraform action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'plan'
 
 concurrency:
-  group: terraform-${{ github.ref }}
+  group: terraform-state-${{ github.event.inputs.environment || 'main' }}
   cancel-in-progress: false
 
 jobs:
+  # Set environment variables
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      tf-version: ${{ steps.env.outputs.tf-version }}
+      project-id: ${{ steps.env.outputs.project-id }}
+      region: ${{ steps.env.outputs.region }}
+    steps:
+      - name: Set Environment Variables
+        id: env
+        run: |
+          # Set environment based on input or branch
+          if [ "${{ github.event.inputs.environment }}" != "" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="prod"
+          else
+            ENV="dev"
+          fi
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "tf-version=1.6.0" >> $GITHUB_OUTPUT
+          
+          # Set project config based on environment
+          case $ENV in
+            "prod")
+              echo "project-id=${{ vars.GCP_PROJECT_ID }}" >> $GITHUB_OUTPUT
+              echo "region=${{ vars.GCP_REGION || 'us-central1' }}" >> $GITHUB_OUTPUT
+              ;;
+            "staging")
+              echo "project-id=${{ vars.GCP_PROJECT_ID }}" >> $GITHUB_OUTPUT
+              echo "region=${{ vars.GCP_REGION || 'us-east1' }}" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "project-id=${{ vars.GCP_PROJECT_ID }}" >> $GITHUB_OUTPUT
+              echo "region=${{ vars.GCP_REGION || 'us-west1' }}" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
   terraform-check:
+    needs: setup
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: ${{ needs.setup.outputs.tf-version }}
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
@@ -47,72 +115,213 @@ jobs:
       - name: TFLint
         run: tflint --recursive
 
+      - name: Security Scan (Checkov)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          quiet: true
+          soft_fail: true
+          framework: terraform
+          output_format: sarif
+          output_file_path: reports/results.sarif
+
+      - name: Upload Checkov results to GitHub Advanced Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: reports/results.sarif
+
   terraform-plan:
-    needs: terraform-check
+    needs: [setup, terraform-check]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: ${{ needs.setup.outputs.environment }}
     permissions:
       contents: read
       pull-requests: write
+      id-token: write
+    outputs:
+      plan-exitcode: ${{ steps.plan.outputs.exitcode }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: ${{ needs.setup.outputs.tf-version }}
 
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Create terraform.tfvars for environment
+        run: |
+          cat > terraform.tfvars << EOF
+          project_id = "${{ needs.setup.outputs.project-id }}"
+          region = "${{ needs.setup.outputs.region }}"
+          environment = "${{ needs.setup.outputs.environment }}"
+          cluster_name = "ai-app-${{ needs.setup.outputs.environment }}"
+          alert_email = "${{ secrets.ALERT_EMAIL || 'admin@example.com' }}"
+          # AI-specific configurations
+          enable_gpu_nodes = ${{ needs.setup.outputs.environment == 'prod' && 'true' || 'false' }}
+          gpu_node_count = ${{ needs.setup.outputs.environment == 'prod' && '2' || '1' }}
+          model_storage_bucket = "ai-models-${{ needs.setup.outputs.environment }}-${{ needs.setup.outputs.project-id }}"
+          EOF
+
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TERRAFORM_STATE_BUCKET || 'hyperbola-476507-tfstate' }}" \
+            -backend-config="prefix=terraform/state/${{ needs.setup.outputs.environment }}"
 
       - name: Terraform Plan
+        id: plan
         run: |
-          terraform plan -out=tfplan
-          terraform show -json tfplan > tfplan.json
+          terraform plan \
+            -var-file=terraform.tfvars \
+            -out=tfplan-${{ needs.setup.outputs.environment }} \
+            -detailed-exitcode
+          
+          terraform show -json tfplan-${{ needs.setup.outputs.environment }} > tfplan.json
+        continue-on-error: true
+
+      - name: Generate Plan Summary
+        run: |
+          terraform show -no-color tfplan-${{ needs.setup.outputs.environment }} > plan-output.txt
+          
+          # Create summary for GitHub
+          echo "## 🏗️ Terraform Plan Summary (${{ needs.setup.outputs.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Project:** ${{ needs.setup.outputs.project-id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ needs.setup.outputs.region }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.plan.outputs.exitcode }}" == "2" ]; then
+            echo "### ⚠️ Changes Detected" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            head -50 plan-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ No Changes Required" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Generate Plan Checksum
         run: |
-          sha256sum tfplan > tfplan.sha256
+          sha256sum tfplan-${{ needs.setup.outputs.environment }} > tfplan.sha256
           cat tfplan.sha256
 
-      - name: Upload Plan
+      - name: Upload Plan Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan
+          name: tfplan-${{ needs.setup.outputs.environment }}-${{ github.sha }}
           path: |
-            tfplan
+            tfplan-${{ needs.setup.outputs.environment }}
             tfplan.sha256
             tfplan.json
-          retention-days: 5
+            plan-output.txt
+          retention-days: 7
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('plan-output.txt', 'utf8');
+            const truncatedOutput = planOutput.length > 60000 ? 
+              planOutput.substring(0, 60000) + '\n... (truncated)' : 
+              planOutput;
+            
+            const body = `## 🏗️ Terraform Plan Results
+            
+            **Environment:** ${{ needs.setup.outputs.environment }}
+            **Plan Status:** ${{ steps.plan.outputs.exitcode == '2' && 'Changes Required' || 'No Changes' }}
+            
+            <details><summary>Show Plan Output</summary>
+            
+            \`\`\`terraform
+            ${truncatedOutput}
+            \`\`\`
+            
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # Approval gate for production deployments
+  approval-gate:
+    needs: [setup, terraform-plan]
+    if: |
+      github.event_name != 'pull_request' && 
+      (needs.setup.outputs.environment == 'prod' || 
+       (github.event.inputs.action == 'apply' && needs.terraform-plan.outputs.plan-exitcode == '2'))
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ needs.setup.outputs.environment }}-approval
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Request Approval
+        run: |
+          echo "🚨 **APPROVAL REQUIRED** 🚨" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action:** Apply Terraform changes" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please review the plan output and approve to proceed with infrastructure changes." >> $GITHUB_STEP_SUMMARY
 
   terraform-apply:
-    needs: terraform-plan
+    needs: [setup, terraform-plan, approval-gate]
+    if: |
+      always() && 
+      needs.terraform-plan.result == 'success' &&
+      needs.terraform-plan.outputs.plan-exitcode == '2' &&
+      (needs.approval-gate.result == 'success' || needs.approval-gate.result == 'skipped') &&
+      github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment: production
+    environment: ${{ needs.setup.outputs.environment }}
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: ${{ needs.setup.outputs.tf-version }}
 
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Create terraform.tfvars for environment
+        run: |
+          cat > terraform.tfvars << EOF
+          project_id = "${{ needs.setup.outputs.project-id }}"
+          region = "${{ needs.setup.outputs.region }}"
+          environment = "${{ needs.setup.outputs.environment }}"
+          cluster_name = "ai-app-${{ needs.setup.outputs.environment }}"
+          alert_email = "${{ secrets.ALERT_EMAIL || 'admin@example.com' }}"
+          enable_gpu_nodes = ${{ needs.setup.outputs.environment == 'prod' && 'true' || 'false' }}
+          gpu_node_count = ${{ needs.setup.outputs.environment == 'prod' && '2' || '1' }}
+          model_storage_bucket = "ai-models-${{ needs.setup.outputs.environment }}-${{ needs.setup.outputs.project-id }}"
+          EOF
+
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TERRAFORM_STATE_BUCKET || 'hyperbola-476507-tfstate' }}" \
+            -backend-config="prefix=terraform/state/${{ needs.setup.outputs.environment }}"
 
       - name: Download Plan
         uses: actions/download-artifact@v4
         with:
-          name: tfplan
+          name: tfplan-${{ needs.setup.outputs.environment }}-${{ github.sha }}
 
       - name: Verify Plan Checksum
         run: |
@@ -124,14 +333,57 @@ jobs:
           echo "✅ Plan checksum verified"
 
       - name: Show Plan Summary
-        run: terraform show tfplan
+        run: |
+          echo "## 🚀 Applying Infrastructure Changes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Started at:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          terraform show tfplan-${{ needs.setup.outputs.environment }}
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
-
-      - name: Output Summary
-        if: always()
+        id: apply
         run: |
-          echo "### Terraform Apply Summary" >> $GITHUB_STEP_SUMMARY
+          terraform apply -auto-approve tfplan-${{ needs.setup.outputs.environment }}
+          echo "apply_success=true" >> $GITHUB_OUTPUT
+
+      - name: Generate Infrastructure Outputs
+        if: steps.apply.outputs.apply_success == 'true'
+        run: |
+          echo "## 🎉 Infrastructure Deployment Successful!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          terraform output -json >> $GITHUB_STEP_SUMMARY || echo "No outputs" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Completed at:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Infrastructure Outputs:" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          terraform output -json >> $GITHUB_STEP_SUMMARY || echo "No outputs available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Store Infrastructure State Info
+        if: steps.apply.outputs.apply_success == 'true'
+        run: |
+          # Create infrastructure info for downstream workflows
+          mkdir -p artifacts
+          terraform output -json > artifacts/terraform-outputs.json
+          echo "${{ needs.setup.outputs.environment }}" > artifacts/environment.txt
+          echo "${{ needs.setup.outputs.project-id }}" > artifacts/project-id.txt
+          echo "${{ needs.setup.outputs.region }}" > artifacts/region.txt
+
+      - name: Upload Infrastructure Info
+        if: steps.apply.outputs.apply_success == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: infrastructure-info-${{ needs.setup.outputs.environment }}
+          path: artifacts/
+          retention-days: 30
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "## ❌ Infrastructure Deployment Failed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ needs.setup.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Failed at:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please check the logs and retry after fixing the issues." >> $GITHUB_STEP_SUMMARY

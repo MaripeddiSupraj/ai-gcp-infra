@@ -7,6 +7,10 @@ on:
         description: 'Type "DESTROY" to confirm'
         required: true
 
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
+
 jobs:
   destroy:
     runs-on: ubuntu-latest
