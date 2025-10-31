@@ -3,6 +3,12 @@ variable "project_id" {
   description = "GCP Project ID"
 }
 
+variable "environment" {
+  type        = string
+  description = "Environment name"
+  default     = "dev"
+}
+
 variable "region" {
   type        = string
   description = "GCP Region"

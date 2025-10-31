@@ -46,14 +46,14 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Terraform Init
-        run: terraform init
+        run: cd environments/dev && terraform init
 
       - name: Terraform Format
-        run: terraform fmt -check
+        run: terraform fmt -check -recursive
         continue-on-error: true
 
       - name: Terraform Validate
-        run: terraform validate
+        run: cd environments/dev && terraform validate
 
       - name: TFLint Setup
         uses: terraform-linters/setup-tflint@v4
@@ -69,7 +69,8 @@ jobs:
       - name: Terraform Plan
         id: plan
         run: |
-          terraform plan -no-color -out=tfplan -detailed-exitcode || EXIT_CODE=$?
+          cd environments/dev
+          terraform plan -no-color -compact-warnings -lock-timeout=5m -out=tfplan -detailed-exitcode || EXIT_CODE=$?
           if [ $EXIT_CODE -eq 0 ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
           elif [ $EXIT_CODE -eq 2 ]; then
@@ -83,7 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ github.sha }}
-          path: tfplan
+          path: environments/dev/tfplan
           retention-days: 7
 
       - name: Comment PR
@@ -120,12 +121,13 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Terraform Init
-        run: terraform init
+        run: cd environments/dev && terraform init
 
       - name: Download Plan
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ github.sha }}
+          path: environments/dev
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: cd environments/dev && terraform apply -no-color -auto-approve tfplan
