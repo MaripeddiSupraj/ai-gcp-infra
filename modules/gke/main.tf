@@ -129,6 +129,7 @@ resource "google_container_node_pool" "spot" {
     }
 
     # Taint spot nodes to ensure workloads explicitly tolerate preemption
+    # Note: Terraform uses "NO_SCHEDULE", Kubernetes manifests use "NoSchedule" - both are correct
     taint {
       key    = "workload-type"
       value  = "spot"
