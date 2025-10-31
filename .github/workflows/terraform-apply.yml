@@ -12,6 +12,10 @@ on:
       - '!k8s-examples/**'
   workflow_dispatch:
 
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   terraform-check:
     runs-on: ubuntu-latest
