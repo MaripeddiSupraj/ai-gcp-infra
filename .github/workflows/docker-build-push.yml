@@ -2,13 +2,15 @@ name: Docker Build and Push
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'app/**'
+      - 'Dockerfile'
   pull_request:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - 'app/**'
+      - 'Dockerfile'
 
 jobs:
   docker-build-push:
@@ -78,7 +80,7 @@ jobs:
         with:
           image-ref: ${{ steps.meta.outputs.image }}:${{ github.sha }}
           format: 'table'
-          exit-code: '0'
+          exit-code: '1'
           severity: 'CRITICAL,HIGH'
 
       - name: Generate SBOM
@@ -96,7 +98,9 @@ jobs:
           retention-days: 30
 
       - name: Push Docker Image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         run: |
           docker push ${{ steps.meta.outputs.image }}:${{ github.sha }}
-          docker push ${{ steps.meta.outputs.image }}:latest
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker push ${{ steps.meta.outputs.image }}:latest
+          fi
