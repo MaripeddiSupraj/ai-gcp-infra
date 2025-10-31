@@ -1,0 +1,44 @@
+name: Complete CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_infra:
+        description: 'Deploy infrastructure (Terraform)'
+        required: false
+        type: boolean
+        default: false
+      build_docker:
+        description: 'Build and push Docker image'
+        required: false
+        type: boolean
+        default: true
+      deploy_k8s:
+        description: 'Deploy to Kubernetes'
+        required: false
+        type: boolean
+        default: true
+      image_tag:
+        description: 'Docker image tag'
+        required: false
+        default: 'latest'
+
+jobs:
+  terraform:
+    if: inputs.deploy_infra
+    uses: ./.github/workflows/terraform-apply.yml
+    secrets: inherit
+
+  docker:
+    if: inputs.build_docker
+    needs: [terraform]
+    uses: ./.github/workflows/docker-build-push.yml
+    secrets: inherit
+
+  kubernetes:
+    if: inputs.deploy_k8s
+    needs: [docker]
+    uses: ./.github/workflows/k8s-deploy.yml
+    secrets: inherit
+    with:
+      image_tag: ${{ inputs.image_tag }}

@@ -10,20 +10,26 @@ on:
     inputs:
       environment:
         description: 'Environment to deploy'
-        required: true
+        required: false
         type: choice
         options:
           - dev
           - prod
+        default: 'dev'
       image_tag:
         description: 'Docker image tag'
-        required: true
+        required: false
         default: 'latest'
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,8 +39,8 @@ jobs:
 
       - uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: ${{ vars.GKE_CLUSTER_NAME }}
-          location: ${{ vars.GCP_REGION }}
+          cluster_name: primary-cluster
+          location: us-central1
 
       - name: Validate manifests
         run: |
@@ -53,11 +59,19 @@ jobs:
         run: |
           find k8s-manifests/ -name '*.yaml' ! -name 'namespace-*.yaml' ! -path '*/security/*' ! -path '*/network-policies/*' ! -path '*/ingress/*' ! -path '*/monitoring/*' -exec kubectl apply -f {} \;
 
+      - name: Set Image Tag
+        id: set_tag
+        run: |
+          IMAGE_TAG="${{ inputs.image_tag || 'latest' }}"
+          echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Using image tag: ${IMAGE_TAG}"
+
       - name: Update Image
         id: update_image
         run: |
-          kubectl set image deployment/app app=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO_ID }}/app:${{ inputs.image_tag }} || true
-          kubectl set image deployment/app-critical -n prod app=${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO_ID }}/app:${{ inputs.image_tag }} || true
+          IMAGE="us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/app:${{ steps.set_tag.outputs.image_tag }}"
+          kubectl set image deployment/app app=${IMAGE} || true
+          kubectl set image deployment/app-critical -n prod app=${IMAGE} || true
 
       - name: Wait for Rollout
         id: rollout
