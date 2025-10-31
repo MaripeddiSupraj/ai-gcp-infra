@@ -6,7 +6,6 @@ on:
     paths:
       - '**.tf'
       - 'modules/**'
-      - '.github/workflows/terraform-*.yml'
       - '!app/**'
       - '!k8s-manifests/**'
       - '!k8s-examples/**'

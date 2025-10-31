@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - 'k8s-manifests/**'
-      - '.github/workflows/k8s-deploy.yml'
   workflow_dispatch:
     inputs:
       environment:
