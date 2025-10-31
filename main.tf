@@ -39,7 +39,6 @@ module "gke_standard" {
   region       = var.region
   network_id   = module.network.network_id
   subnet_id    = module.network.subnet_id
-  node_count   = var.node_count
   machine_type = var.machine_type
   disk_size_gb = var.disk_size_gb
 }
