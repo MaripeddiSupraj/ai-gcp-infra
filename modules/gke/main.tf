@@ -87,6 +87,12 @@ resource "google_container_cluster" "primary" {
     mode               = "BASIC"
     vulnerability_mode = "VULNERABILITY_BASIC"
   }
+
+  # Backup configuration for disaster recovery
+  # Note: Requires GKE Backup API to be enabled
+  # lifecycle {
+  #   ignore_changes = [node_config]
+  # }
 }
 
 # On-demand node pool for critical workloads

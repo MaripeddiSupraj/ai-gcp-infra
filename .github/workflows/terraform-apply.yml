@@ -62,13 +62,37 @@ jobs:
         run: terraform init
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: |
+          terraform plan -out=tfplan
+          terraform show -json tfplan > tfplan.json
+
+      - name: Generate Plan Checksum
+        run: |
+          sha256sum tfplan > tfplan.sha256
+          echo "PLAN_CHECKSUM=$(cat tfplan.sha256 | cut -d' ' -f1)" >> $GITHUB_ENV
 
       - name: Upload Plan
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
-          path: tfplan
+          path: |
+            tfplan
+            tfplan.sha256
+            tfplan.json
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('tfplan.json', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Terraform Plan\n\`\`\`json\n${plan.substring(0, 5000)}\n\`\`\`\n\nChecksum: \`${process.env.PLAN_CHECKSUM}\``
+            })
 
   terraform-apply:
     needs: terraform-plan
@@ -93,5 +117,24 @@ jobs:
         with:
           name: tfplan
 
+      - name: Verify Plan Checksum
+        run: |
+          sha256sum -c tfplan.sha256
+          if [ $? -ne 0 ]; then
+            echo "❌ Plan checksum verification failed! Plan may have been tampered with."
+            exit 1
+          fi
+          echo "✅ Plan checksum verified"
+
+      - name: Show Plan Summary
+        run: terraform show tfplan
+
       - name: Terraform Apply
-        run: terraform apply tfplan
+        run: terraform apply -auto-approve tfplan
+
+      - name: Output Summary
+        if: always()
+        run: |
+          echo "### Terraform Apply Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          terraform output -json >> $GITHUB_STEP_SUMMARY

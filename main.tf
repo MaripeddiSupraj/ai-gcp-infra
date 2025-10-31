@@ -10,6 +10,7 @@ terraform {
     bucket = "hyperbola-476507-tfstate"
     prefix = "terraform/state"
   }
+  # Note: State locking is automatically enabled for GCS backend
 }
 
 provider "google" {
