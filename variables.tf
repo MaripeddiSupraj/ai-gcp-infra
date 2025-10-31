@@ -55,12 +55,6 @@ variable "cluster_type" {
   }
 }
 
-variable "node_count" {
-  type        = number
-  description = "Number of nodes per zone"
-  default     = 1
-}
-
 variable "machine_type" {
   type        = string
   description = "Machine type for nodes"
