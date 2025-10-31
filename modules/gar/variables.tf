@@ -18,8 +18,9 @@ variable "format" {
   default     = "DOCKER"
   description = "The format of the repository (DOCKER, MAVEN, NPM, PYTHON, APT, YUM, etc.)"
   validation {
+    # Common GAR formats - see https://cloud.google.com/artifact-registry/docs/supported-formats
     condition     = contains(["DOCKER", "MAVEN", "NPM", "PYTHON", "APT", "YUM", "GO", "KFP"], var.format)
-    error_message = "The format must be one of: DOCKER, MAVEN, NPM, PYTHON, APT, YUM, GO, KFP."
+    error_message = "The format must be one of: DOCKER, MAVEN, NPM, PYTHON, APT, YUM, GO, KFP. See GAR documentation for all supported formats."
   }
 }
 

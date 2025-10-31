@@ -48,6 +48,19 @@ module "gke_standard" {
 
 ## Node Pools
 
+### Design Decision: Fixed Node Pool Configurations
+
+This module uses **fixed machine types and disk sizes** for each node pool as part of an opinionated cost optimization strategy:
+
+- **Spot pool**: Fixed at e2-medium with 50GB pd-standard (cost-optimized)
+- **On-demand pool**: Fixed at n2-standard-2 with 100GB pd-ssd (performance-optimized)
+
+**Rationale**:
+- Simplifies cost estimation and capacity planning
+- Encourages using spot instances for most workloads
+- Reserves powerful on-demand instances for critical workloads only
+- If you need custom machine types, consider forking this module or using the Autopilot variant
+
 ### Spot Node Pool (Default)
 - **Machine Type**: e2-medium
 - **Disk**: 50GB pd-standard
