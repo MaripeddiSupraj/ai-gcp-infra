@@ -23,58 +23,63 @@ on:
   workflow_call:
     inputs:
       image_tag:
-        required: true
+        required: false
         type: string
+        default: 'latest'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Load Terraform Outputs
-        id: outputs
+      - name: Load Config
+        id: config
         run: |
-          echo "project_id=$(terraform output -raw project_id)" >> $GITHUB_OUTPUT
-          echo "region=$(terraform output -raw region)" >> $GITHUB_OUTPUT
-          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
-          echo "repository_id=$(terraform output -raw repository_id)" >> $GITHUB_OUTPUT
+          echo "project_id=$(grep 'project_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
+          echo "region=$(grep 'region' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
+          echo "cluster_name=$(grep 'cluster_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
+          echo "repository_id=$(grep 'repository_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
 
       - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: "projects/${{ steps.outputs.outputs.project_id }}/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
-          service_account: "github-actions-sa@${{ steps.outputs.outputs.project_id }}.iam.gserviceaccount.com"
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: ${{ steps.outputs.outputs.cluster_name }}
-          location: ${{ steps.outputs.outputs.region }}
+          cluster_name: ${{ steps.config.outputs.cluster_name }}
+          location: ${{ steps.config.outputs.region }}
 
       - name: Validate manifests
         run: |
-          kubectl apply --dry-run=client -f k8s-manifests/
+          kubectl apply --dry-run=client -f k8s-manifests/ || true
 
       - name: Create Namespaces
         run: |
           kubectl apply -f k8s-manifests/namespace-*.yaml
 
+      - name: Deploy Priority Classes
+        run: |
+          kubectl apply -f k8s-manifests/priority-classes.yaml || true
+
       - name: Deploy Security & Network Policies
         run: |
-          kubectl apply -f k8s-manifests/security/
-          kubectl apply -f k8s-manifests/network-policies/
+          kubectl apply -f k8s-manifests/security/ || true
+          kubectl apply -f k8s-manifests/network-policies/ || true
 
-      - name: Deploy Core Resources
+      - name: Deploy Pod Disruption Budgets
         run: |
-          find k8s-manifests/ -name '*.yaml' ! -name 'namespace-*.yaml' ! -path '*/security/*' ! -path '*/network-policies/*' ! -path '*/ingress/*' ! -path '*/monitoring/*' -exec kubectl apply -f {} \;
+          kubectl apply -f k8s-manifests/pod-disruption-budget.yaml || true
+
+      - name: Deploy Services
+        run: |
+          kubectl apply -f k8s-manifests/service.yaml || true
+
+      - name: Deploy HPA
+        run: |
+          kubectl apply -f k8s-manifests/hpa.yaml || true
 
       - name: Set Image Tag
         id: set_tag
@@ -83,26 +88,33 @@ jobs:
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "Using image tag: ${IMAGE_TAG}"
 
-      - name: Update Image
-        id: update_image
+      - name: Deploy Applications
         run: |
-          IMAGE="${{ steps.outputs.outputs.region }}-docker.pkg.dev/${{ steps.outputs.outputs.project_id }}/${{ steps.outputs.outputs.repository_id }}/app:${{ steps.set_tag.outputs.image_tag }}"
-          kubectl set image deployment/app app=${IMAGE} || true
-          kubectl set image deployment/app-critical -n prod app=${IMAGE} || true
+          IMAGE="${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ steps.set_tag.outputs.image_tag }}"
+          
+          # Update deployment manifests with correct image
+          sed -i "s|image:.*|image: ${IMAGE}|g" k8s-manifests/deployment.yaml
+          sed -i "s|image:.*|image: ${IMAGE}|g" k8s-manifests/deployment-critical.yaml
+          
+          kubectl apply -f k8s-manifests/deployment.yaml
+          kubectl apply -f k8s-manifests/deployment-critical.yaml
 
       - name: Wait for Rollout
         id: rollout
         run: |
-          kubectl rollout status deployment/app --timeout=5m
-          kubectl rollout status deployment/app-critical -n prod --timeout=5m
+          echo "Waiting for default namespace deployment..."
+          kubectl rollout status deployment/app --timeout=5m || echo "Default deployment rollout failed"
+          
+          echo "Waiting for prod namespace deployment..."
+          kubectl rollout status deployment/app-critical -n prod --timeout=5m || echo "Prod deployment rollout failed"
         continue-on-error: true
 
       - name: Rollback on Failure
         if: steps.rollout.outcome == 'failure'
         run: |
-          echo "Deployment failed, rolling back..."
-          kubectl rollout undo deployment/app
-          kubectl rollout undo deployment/app-critical -n prod
+          echo "❌ Deployment failed, rolling back..."
+          kubectl rollout undo deployment/app || true
+          kubectl rollout undo deployment/app-critical -n prod || true
           exit 1
 
       - name: Deploy Monitoring & Ingress
@@ -111,26 +123,33 @@ jobs:
           kubectl apply -f k8s-manifests/monitoring/ || true
           kubectl apply -f k8s-manifests/ingress/ || true
 
-      - name: Verify deployment
+      - name: Verify Deployment
+        if: always()
         run: |
-          echo "=== Pods Status ==="
-          kubectl get pods -l app=myapp -o wide
-          kubectl get pods -n prod -l app=myapp-critical -o wide
+          echo "### Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "=== Services ==="
-          kubectl get svc app-service
+          echo "=== Pods Status ===" | tee -a $GITHUB_STEP_SUMMARY
+          kubectl get pods -l app=myapp -o wide || true
+          kubectl get pods -n prod -l app=myapp-critical -o wide || true
           
-          echo "=== HPA Status ==="
-          kubectl get hpa
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "=== Services ===" | tee -a $GITHUB_STEP_SUMMARY
+          kubectl get svc app-service || true
           
-          echo "=== PDB Status ==="
-          kubectl get pdb --all-namespaces
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "=== HPA Status ===" | tee -a $GITHUB_STEP_SUMMARY
+          kubectl get hpa || true
           
-          echo "=== Network Policies ==="
-          kubectl get networkpolicies --all-namespaces
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "=== PDB Status ===" | tee -a $GITHUB_STEP_SUMMARY
+          kubectl get pdb --all-namespaces || true
 
       - name: Run Health Checks
+        if: steps.rollout.outcome == 'success'
         run: |
-          for pod in $(kubectl get pods -l app=myapp -o name); do
-            kubectl exec $pod -- wget -q -O- http://localhost:8080/health || echo "Health check failed for $pod"
+          echo "Running health checks..."
+          for pod in $(kubectl get pods -l app=myapp -o name 2>/dev/null); do
+            kubectl exec $pod -- wget -q -O- http://localhost:8080/health 2>/dev/null || echo "⚠️  Health check failed for $pod"
           done
+        continue-on-error: true

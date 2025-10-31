@@ -25,18 +25,18 @@ on:
 
 jobs:
   terraform:
-    if: inputs.deploy_infra
+    if: inputs.deploy_infra == true
     uses: ./.github/workflows/terraform-apply.yml
     secrets: inherit
 
   docker:
-    if: inputs.build_docker
+    if: inputs.build_docker == true && (inputs.deploy_infra == false || success())
     needs: [terraform]
     uses: ./.github/workflows/docker-build-push.yml
     secrets: inherit
 
   kubernetes:
-    if: inputs.deploy_k8s
+    if: inputs.deploy_k8s == true && success()
     needs: [docker]
     uses: ./.github/workflows/k8s-deploy.yml
     secrets: inherit

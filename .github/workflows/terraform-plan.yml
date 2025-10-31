@@ -33,9 +33,12 @@ jobs:
       - uses: terraform-linters/setup-tflint@v4
         with:
           tflint_version: latest
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: TFLint Init
         run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: TFLint
         run: tflint --recursive
@@ -45,7 +48,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
@@ -56,34 +58,41 @@ jobs:
 
       - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: "projects/${{ steps.outputs.outputs.project_id }}/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
-          service_account: "github-actions-sa@${{ steps.outputs.outputs.project_id }}.iam.gserviceaccount.com"
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color
+        run: |
+          terraform plan -no-color 2>&1 | tee plan_output.txt
+          echo "exitcode=$?" >> $GITHUB_OUTPUT
         continue-on-error: true
 
-      - uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
+      - name: Comment Plan on PR
+        uses: actions/github-script@v7
         with:
           script: |
-            const output = `#### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+            const fs = require('fs');
+            const plan = fs.readFileSync('plan_output.txt', 'utf8');
+            const truncatedPlan = plan.length > 65000 ? plan.substring(0, 65000) + '\n\n... (truncated)' : plan;
+            
+            const output = `#### Terraform Plan 📖 \`${{ steps.plan.outputs.exitcode == '0' ? 'Success' : 'Failed' }}\`
 
             <details><summary>Show Plan</summary>
 
             \`\`\`terraform
-            ${{ steps.plan.outputs.stdout }}
+            ${truncatedPlan}
             \`\`\`
 
-            </details>`;
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: output
-            })
+            });
