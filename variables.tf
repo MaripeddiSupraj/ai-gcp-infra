@@ -102,3 +102,18 @@ variable "workload_identity_roles" {
   description = "IAM roles for workload identity"
   default     = ["roles/storage.objectViewer"]
 }
+
+variable "github_actions_iam_roles" {
+  type        = list(string)
+  description = "The IAM roles to grant to the GitHub Actions Service Account on the project."
+  default = [
+    "roles/container.developer",
+    "roles/storage.admin",
+    "roles/iam.serviceAccountUser"
+  ]
+}
+
+variable "github_repository" {
+  type        = string
+  description = "The GitHub repository in the format 'owner/repo'."
+}

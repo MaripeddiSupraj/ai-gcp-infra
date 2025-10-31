@@ -45,8 +45,11 @@ jobs:
         run: tflint --recursive
 
   terraform-plan:
-    needs: terraform-check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -97,7 +100,9 @@ jobs:
   terraform-apply:
     needs: terraform-plan
     runs-on: ubuntu-latest
-    environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -107,15 +112,8 @@ jobs:
 
       - uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Download Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
+          workload_identity_provider: "projects/${{ steps.outputs.outputs.project_id }}/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
+          service_account: "github-actions-sa@${{ steps.outputs.outputs.project_id }}.iam.gserviceaccount.com"
 
       - name: Verify Plan Checksum
         run: |

@@ -81,3 +81,17 @@ module "workload_identity" {
   k8s_service_account   = "app-sa"
   iam_roles             = var.workload_identity_roles
 }
+
+module "github_actions_wi" {
+  source = "./modules/wi-federation"
+
+  project_id                   = var.project_id
+  pool_id                      = "github-actions-pool"
+  pool_display_name            = "GitHub Actions Pool"
+  provider_id                  = "github-actions-provider"
+  provider_display_name        = "GitHub Actions Provider"
+  service_account_id           = "github-actions-sa"
+  service_account_display_name = "GitHub Actions Service Account"
+  project_iam_roles            = var.github_actions_iam_roles
+  github_repository            = var.github_repository
+}

@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       security-events: write
     steps:
       - uses: actions/checkout@v4
@@ -26,20 +27,27 @@ jobs:
 
       - uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: "projects/${{ steps.outputs.outputs.project_id }}/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
+          service_account: "github-actions-sa@${{ steps.outputs.outputs.project_id }}.iam.gserviceaccount.com"
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Load Config
-        id: config
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Load Terraform Outputs
+        id: outputs
         run: |
-          echo "project_id=$(grep 'project_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
-          echo "region=$(grep 'region' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
-          echo "repository_id=$(grep 'repository_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
+          echo "project_id=$(terraform output -raw project_id)" >> $GITHUB_OUTPUT
+          echo "region=$(terraform output -raw region)" >> $GITHUB_OUTPUT
+          echo "repository_id=$(terraform output -raw repository_id)" >> $GITHUB_OUTPUT
 
       - name: Configure Docker
-        run: gcloud auth configure-docker ${{ steps.config.outputs.region }}-docker.pkg.dev
+        run: gcloud auth configure-docker ${{ steps.outputs.outputs.region }}-docker.pkg.dev
 
       - name: Build Docker Image
         uses: docker/build-push-action@v5
@@ -48,19 +56,19 @@ jobs:
           push: false
           load: true
           tags: |
-            ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
-            ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:latest
+            ${{ steps.outputs.outputs.region }}-docker.pkg.dev/${{ steps.outputs.outputs.project_id }}/${{ steps.outputs.outputs.repository_id }}/app:${{ github.sha }}
+            ${{ steps.outputs.outputs.region }}-docker.pkg.dev/${{ steps.outputs.outputs.project_id }}/${{ steps.outputs.outputs.repository_id }}/app:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
+          image-ref: ${{ steps.outputs.outputs.region }}-docker.pkg.dev/${{ steps.outputs.outputs.project_id }}/${{ steps.outputs.outputs.repository_id }}/app:${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-        continue-on-error: true
+
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -71,7 +79,7 @@ jobs:
       - name: Run Trivy vulnerability scanner (table output)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
+          image-ref: ${{ steps.outputs.outputs.region }}-docker.pkg.dev/${{ steps.outputs.outputs.project_id }}/${{ steps.outputs.outputs.repository_id }}/app:${{ github.sha }}
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
@@ -79,7 +87,7 @@ jobs:
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app:${{ github.sha }}
+          image: ${{ steps.outputs.outputs.region }}-docker.pkg.dev/${{ steps.outputs.outputs.project_id }}/${{ steps.outputs.outputs.repository_id }}/app:${{ github.sha }}
           format: spdx-json
           output-file: sbom.spdx.json
 
@@ -92,7 +100,7 @@ jobs:
       - name: Push Docker Image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          IMAGE_BASE="${{ steps.config.outputs.region }}-docker.pkg.dev/${{ steps.config.outputs.project_id }}/${{ steps.config.outputs.repository_id }}/app"
+          IMAGE_BASE="${{ steps.outputs.outputs.region }}-docker.pkg.dev/${{ steps.outputs.outputs.project_id }}/${{ steps.outputs.outputs.repository_id }}/app"
           docker push ${IMAGE_BASE}:${{ github.sha }}
           docker push ${IMAGE_BASE}:latest
 

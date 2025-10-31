@@ -5,3 +5,4 @@ cluster_type  = "standard"  # or "autopilot"
 network_name  = "gke-network"
 repository_id = "docker-repo"
 node_count    = 1  # Spot node pool count (1 on-demand always created)
+github_repository = "your-github-owner/your-github-repo"
