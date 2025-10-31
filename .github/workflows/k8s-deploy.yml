@@ -38,10 +38,10 @@ jobs:
       - name: Load Config
         id: config
         run: |
-          echo "project_id=$(grep 'project_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
-          echo "region=$(grep 'region' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
-          echo "cluster_name=$(grep 'cluster_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
-          echo "repository_id=$(grep 'repository_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' \"')" >> $GITHUB_OUTPUT
+          echo "project_id=$(grep 'project_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
+          echo "region=$(grep 'region' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
+          echo "cluster_name=$(grep 'cluster_name' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
+          echo "repository_id=$(grep 'repository_id' terraform.tfvars | cut -d'=' -f2 | tr -d ' "')" >> $GITHUB_OUTPUT
 
       - uses: google-github-actions/auth@v2
         with:
