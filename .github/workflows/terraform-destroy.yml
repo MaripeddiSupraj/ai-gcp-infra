@@ -1,6 +1,7 @@
+---
 name: Terraform Destroy
 
-on:
+'on':
   workflow_dispatch:
     inputs:
       confirm:
@@ -15,6 +16,9 @@ jobs:
   destroy:
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      id-token: write
     if: github.event.inputs.confirm == 'DESTROY'
     steps:
       - uses: actions/checkout@v4
@@ -28,13 +32,15 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Terraform Init
-        run: terraform init
+        run: cd environments/dev && terraform init
 
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+        run: cd environments/dev && terraform destroy -auto-approve
 
       - name: Summary
         run: |
-          echo "### Terraform Destroy Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "All infrastructure has been destroyed." >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### Terraform Destroy Complete"
+            echo ""
+            echo "All infrastructure has been destroyed."
+          } >> "$GITHUB_STEP_SUMMARY"
