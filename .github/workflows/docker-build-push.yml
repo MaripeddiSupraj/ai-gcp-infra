@@ -13,6 +13,13 @@ on:
       - 'app/**'
       - 'Dockerfile'
       - '!.github/**'
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: 'Push image to registry?'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   docker-build-push:
@@ -102,7 +109,9 @@ jobs:
           retention-days: 30
 
       - name: Push Docker Image
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        if: |
+          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.push_image == 'true')
         run: |
           docker push ${{ steps.meta.outputs.image }}:${{ github.sha }}
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
