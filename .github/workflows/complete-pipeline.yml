@@ -30,13 +30,13 @@ jobs:
     secrets: inherit
 
   docker:
-    if: inputs.build_docker == true && (inputs.deploy_infra == false || success())
+    if: inputs.build_docker == true && always() && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped')
     needs: [terraform]
     uses: ./.github/workflows/docker-build-push.yml
     secrets: inherit
 
   kubernetes:
-    if: inputs.deploy_k8s == true && success()
+    if: inputs.deploy_k8s == true && always() && (needs.docker.result == 'success' || needs.docker.result == 'skipped')
     needs: [docker]
     uses: ./.github/workflows/k8s-deploy.yml
     secrets: inherit

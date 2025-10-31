@@ -6,10 +6,6 @@ on:
       confirm:
         description: 'Type "DESTROY" to confirm'
         required: true
-      clear_state:
-        description: 'Clear state file after destroy'
-        type: boolean
-        default: false
 
 jobs:
   destroy:
@@ -27,30 +23,14 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Clear All Locks
-        run: |
-          echo "Clearing all state locks..."
-          gsutil rm gs://hyperbola-476507-tfstate/terraform/state/*.tflock 2>/dev/null || true
-        continue-on-error: true
-
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
 
-      - name: Clear State (Optional)
-        if: inputs.clear_state == true
-        run: |
-          echo "Clearing state files..."
-          gsutil rm -r gs://hyperbola-476507-tfstate/terraform/state/* || true
-          echo "✅ State cleared. Fresh start ready!"
-
       - name: Summary
         run: |
           echo "### Terraform Destroy Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "All infrastructure has been destroyed." >> $GITHUB_STEP_SUMMARY
-          if [ "${{ inputs.clear_state }}" == "true" ]; then
-            echo "State files have been cleared." >> $GITHUB_STEP_SUMMARY
-          fi
