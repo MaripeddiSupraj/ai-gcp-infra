@@ -24,4 +24,22 @@ resource "google_container_cluster" "autopilot" {
   }
 
   deletion_protection = false
+
+  # Enable workload identity for better security
+  workload_identity_config {
+    workload_pool = "${var.project_id}.svc.id.goog"
+  }
+
+  # Binary authorization for enhanced security
+  # Note: Requires a Binary Authorization policy to be configured in the project
+  # If no policy exists, the default policy allows all images
+  binary_authorization {
+    evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
+  }
+
+  # Resource labels for cost management and organization
+  resource_labels = {
+    cluster_type = "autopilot"
+    managed_by   = "terraform"
+  }
 }
