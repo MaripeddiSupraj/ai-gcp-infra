@@ -81,7 +81,7 @@ resource "google_container_cluster" "primary" {
     }
   }
 
-  deletion_protection = false
+  deletion_protection = true
 
   security_posture_config {
     mode               = "BASIC"
