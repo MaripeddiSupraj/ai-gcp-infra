@@ -46,7 +46,7 @@ resource "google_container_cluster" "primary" {
   }
 
   cluster_autoscaling {
-    enabled = true
+    enabled             = true
     autoscaling_profile = "OPTIMIZE_UTILIZATION"
     resource_limits {
       resource_type = "cpu"
@@ -97,10 +97,10 @@ resource "google_container_cluster" "primary" {
 
 # On-demand node pool for critical workloads
 resource "google_container_node_pool" "on_demand" {
-  name       = "${var.cluster_name}-on-demand"
-  location   = var.region
-  cluster    = google_container_cluster.primary.name
-  project    = var.project_id
+  name     = "${var.cluster_name}-on-demand"
+  location = var.region
+  cluster  = google_container_cluster.primary.name
+  project  = var.project_id
 
   autoscaling {
     min_node_count = 1
@@ -154,10 +154,10 @@ resource "google_container_node_pool" "on_demand" {
 
 # Spot node pool for cost-effective workloads
 resource "google_container_node_pool" "spot" {
-  name       = "${var.cluster_name}-spot"
-  location   = var.region
-  cluster    = google_container_cluster.primary.name
-  project    = var.project_id
+  name     = "${var.cluster_name}-spot"
+  location = var.region
+  cluster  = google_container_cluster.primary.name
+  project  = var.project_id
 
   autoscaling {
     min_node_count = 1

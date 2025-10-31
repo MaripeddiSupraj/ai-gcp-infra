@@ -75,11 +75,11 @@ module "monitoring" {
 module "workload_identity" {
   source = "./modules/security"
 
-  project_id            = var.project_id
-  service_account_name  = "app-workload-identity"
-  namespace             = "default"
-  k8s_service_account   = "app-sa"
-  iam_roles             = var.workload_identity_roles
+  project_id           = var.project_id
+  service_account_name = "app-workload-identity"
+  namespace            = "default"
+  k8s_service_account  = "app-sa"
+  iam_roles            = var.workload_identity_roles
 }
 
 module "github_actions_wi" {

@@ -1,9 +1,9 @@
 
 resource "google_iam_workload_identity_pool" "pool" {
-  project                = var.project_id
+  project                   = var.project_id
   workload_identity_pool_id = var.pool_id
-  display_name           = var.pool_display_name
-  description            = "Workload Identity Pool for GitHub Actions"
+  display_name              = var.pool_display_name
+  description               = "Workload Identity Pool for GitHub Actions"
 }
 
 resource "google_iam_workload_identity_pool_provider" "provider" {
