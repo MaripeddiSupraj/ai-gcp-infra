@@ -45,11 +45,6 @@ resource "google_container_cluster" "primary" {
     enabled = true
   }
 
-  # Disable cluster autoscaling - use node pool autoscaling instead
-  cluster_autoscaling {
-    enabled = false
-  }
-
   monitoring_config {
     enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
     managed_prometheus {
