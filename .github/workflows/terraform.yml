@@ -77,7 +77,9 @@ jobs:
           TF_VAR_github_repository: ${{ github.repository }}
         run: |
           cd environments/dev
-          terraform plan -no-color -compact-warnings -lock-timeout=5m -out=tfplan -detailed-exitcode || EXIT_CODE=$?
+          # Force unlock if previous run was cancelled
+          terraform force-unlock -force $(gcloud storage cat gs://hyperbola-476507-tfstate/terraform/state/dev/default.tflock 2>/dev/null | jq -r .ID) 2>/dev/null || true
+          terraform plan -no-color -compact-warnings -lock-timeout=30s -out=tfplan -detailed-exitcode || EXIT_CODE=$?
           if [ $EXIT_CODE -eq 0 ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
           elif [ $EXIT_CODE -eq 2 ]; then
