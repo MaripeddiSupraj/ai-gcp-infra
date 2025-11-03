@@ -98,6 +98,7 @@ jobs:
         if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}
         env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
           TF_VAR_github_repository: ${{ github.repository }}
         run: |
           terraform plan -no-color -compact-warnings -out=tfplan.bin -lock-timeout=5m
