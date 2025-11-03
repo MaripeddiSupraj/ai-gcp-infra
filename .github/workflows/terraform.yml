@@ -64,16 +64,12 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Terraform Init (branch-scoped state)
+      - name: Terraform Init
         working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
         run: |
-          BRANCH_NAME=$(echo "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}" | sed 's/[^a-zA-Z0-9-]/-/g')
-          echo "Using branch prefix: $BRANCH_NAME"
-          terraform init -no-color \
-            -backend-config="prefix=terraform/state/${{ github.event.inputs.environment || 'dev' }}/$BRANCH_NAME" \
-            -lock-timeout=5m
+          terraform init -no-color -lock-timeout=5m
 
       - name: Terraform Fmt
         working-directory: ${{ env.WORKDIR }}
