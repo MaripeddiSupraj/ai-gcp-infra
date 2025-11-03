@@ -142,25 +142,3 @@ jobs:
               repo: context.repo.repo,
               body: planOutput
             });
-
-      - name: Slack Notification
-        if: failure()
-        uses: slackapi/slack-github-action@v1
-        with:
-          payload: |
-            {
-              "text": "Terraform workflow failed for ${{ github.repository }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Terraform ${{ github.event.inputs.action || 'plan' }}* failed\n*Environment:* ${{ github.event.inputs.environment || 'dev' }}\n*Branch:* ${{ github.ref_name }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-        continue-on-error: true
