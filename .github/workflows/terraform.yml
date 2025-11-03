@@ -100,7 +100,7 @@ jobs:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
 
       - name: Generate Infracost JSON
-        if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan'
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.action == 'plan'
         working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -118,7 +118,7 @@ jobs:
           behavior: update
 
       - name: Terraform Plan
-        if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -128,7 +128,7 @@ jobs:
           terraform show -no-color tfplan.bin > plan.txt
 
       - name: Upload Plan Artifact
-        if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan-${{ github.event.inputs.environment || 'dev' }}-${{ github.sha }}
