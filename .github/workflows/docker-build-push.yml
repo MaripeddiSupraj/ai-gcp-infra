@@ -38,7 +38,8 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: app/Dockerfile
-          failure-threshold: warning
+          failure-threshold: error
+          ignore: DL3008,DL3016
 
   build-push:
     name: "🏗️ Build & Push"
