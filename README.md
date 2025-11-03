@@ -225,3 +225,4 @@ Contributions are welcome! Please:
 5. Submit a pull request
 # Test non-tf push
 # Clean deploy
+# Fresh deploy
