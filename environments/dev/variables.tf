@@ -118,3 +118,4 @@ variable "github_repository" {
   type        = string
   description = "The GitHub repository in the format 'owner/repo'."
 }
+
