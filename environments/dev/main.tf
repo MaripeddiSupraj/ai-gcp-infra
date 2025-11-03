@@ -37,6 +37,7 @@ module "gke_standard" {
   subnet_id    = module.network.subnet_id
   machine_type = var.machine_type
   disk_size_gb = var.disk_size_gb
+  environment  = var.environment
 }
 
 module "gke_autopilot" {
