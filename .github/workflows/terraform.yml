@@ -46,6 +46,8 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Terraform Init
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
         run: cd environments/dev && terraform init
 
       - name: Terraform Format
@@ -53,6 +55,8 @@ jobs:
         continue-on-error: true
 
       - name: Terraform Validate
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
         run: cd environments/dev && terraform validate
 
       - name: TFLint Setup
@@ -69,10 +73,11 @@ jobs:
 
       - name: Terraform Plan
         id: plan
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
         run: |
           cd environments/dev
-          terraform plan -no-color -compact-warnings -lock-timeout=5m -out=tfplan -detailed-exitcode \
-            -var="github_repository=${{ github.repository }}" || EXIT_CODE=$?
+          terraform plan -no-color -compact-warnings -lock-timeout=5m -out=tfplan -detailed-exitcode || EXIT_CODE=$?
           if [ $EXIT_CODE -eq 0 ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
           elif [ $EXIT_CODE -eq 2 ]; then
