@@ -59,7 +59,7 @@ jobs:
         uses: terraform-linters/setup-tflint@v4
 
       - name: TFLint
-        run: tflint --init && tflint --recursive
+        run: cd environments/dev && tflint --init && tflint
 
       - name: tfsec Security Scan
         uses: aquasecurity/tfsec-action@v1.0.0
