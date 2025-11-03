@@ -224,3 +224,4 @@ Contributions are welcome! Please:
 4. Run linting and validation
 5. Submit a pull request
 # Test non-tf push
+# Clean deploy
