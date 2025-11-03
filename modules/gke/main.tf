@@ -36,14 +36,11 @@ resource "google_container_cluster" "primary" {
   }
 
   monitoring_config {
-    enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
-    managed_prometheus {
-      enabled = true
-    }
+    enable_components = ["SYSTEM_COMPONENTS"]
   }
 
   logging_config {
-    enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
+    enable_components = ["SYSTEM_COMPONENTS"]
   }
 
   maintenance_policy {
