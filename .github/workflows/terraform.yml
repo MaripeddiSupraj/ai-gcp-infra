@@ -117,15 +117,27 @@ jobs:
           path: ${{ env.WORKDIR }}
         continue-on-error: true
 
-      - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
+      - name: Terraform Apply (safe for production)
+        if: >
+          ( (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.inputs.action == 'apply')
+            || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' && github.ref == 'refs/heads/main') )
         working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
         run: |
+          # For production ensure we have a saved plan (don't apply ad-hoc)
+          if [ "${{ github.event.inputs.environment }}" = "prod" ]; then
+            if [ ! -f tfplan.bin ]; then
+              echo "ERROR: Production apply requires a pre-generated plan artifact (tfplan.bin). Aborting."
+              exit 1
+            fi
+          fi
+
           if [ -f tfplan.bin ]; then
+            echo "Applying from saved plan..."
             terraform apply -no-color -auto-approve -lock-timeout=5m tfplan.bin
           else
+            echo "Saved plan not present; running an on-the-fly plan+apply (allowed only for non-prod)..."
             terraform plan -no-color -compact-warnings -out=tfplan.bin -lock-timeout=5m
             terraform apply -no-color -auto-approve -lock-timeout=5m tfplan.bin
           fi
