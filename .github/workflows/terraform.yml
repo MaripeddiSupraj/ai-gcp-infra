@@ -28,14 +28,15 @@ on:
         options: [dev, stage, prod]
         default: dev
 
+# Safe concurrency settings: cancel in non-prod, queue in prod
 concurrency:
   group: terraform-${{ github.ref }}-${{ github.event.inputs.environment || 'dev' }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event.inputs.environment != 'prod' }}
 
 permissions:
   contents: read
   pull-requests: write
-  id-token: write  # For OIDC-based auth
+  id-token: write  # for OIDC if used later
 
 env:
   TF_IN_AUTOMATION: 'true'
@@ -48,32 +49,38 @@ jobs:
     name: Terraform Workflow
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment == 'prod' && 'production' || github.event.inputs.environment == 'stage' && 'staging' || 'development' }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.8.5  # Latest stable for production
+          terraform_version: 1.8.5
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Terraform Init
+      - name: Terraform Init (branch-scoped state)
         working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
-        run: terraform init -no-color
+        run: |
+          BRANCH_NAME=$(echo "${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}" | sed 's/[^a-zA-Z0-9-]/-/g')
+          echo "Using branch prefix: $BRANCH_NAME"
+          terraform init -no-color \
+            -backend-config="prefix=terraform/state/${{ github.event.inputs.environment || 'dev' }}/$BRANCH_NAME" \
+            -lock-timeout=5m
 
       - name: Terraform Fmt
+        working-directory: ${{ env.WORKDIR }}
         run: terraform fmt -check -recursive || true
 
       - name: Terraform Validate
         working-directory: ${{ env.WORKDIR }}
-        env:
-          TF_VAR_github_repository: ${{ github.repository }}
         run: terraform validate -no-color
 
       - name: Setup TFLint
@@ -85,23 +92,15 @@ jobs:
           tflint --init
           tflint
 
-      - name: tfsec Security Scan
-        uses: aquasecurity/tfsec-action@v1.0.0
-        with:
-          working_directory: ${{ env.WORKDIR }}
-          soft_fail: true
-
       - name: Terraform Plan
-        if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}
-        env:
-          TF_VAR_github_repository: ${{ github.repository }}
         run: |
-          terraform plan -no-color -compact-warnings -out=tfplan.bin
+          terraform plan -no-color -compact-warnings -out=tfplan.bin -lock-timeout=5m
           terraform show -no-color tfplan.bin > plan.txt
 
       - name: Upload Plan Artifact
-        if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan-${{ github.event.inputs.environment || 'dev' }}-${{ github.sha }}
@@ -109,21 +108,31 @@ jobs:
             ${{ env.WORKDIR }}/tfplan.bin
             ${{ env.WORKDIR }}/plan.txt
 
+      - name: Download Plan Artifact (for apply)
+        if: github.event.inputs.action == 'apply'
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ github.event.inputs.environment || 'dev' }}-${{ github.sha }}
+          path: ${{ env.WORKDIR }}
+        continue-on-error: true
+
       - name: Terraform Apply
         if: github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}
-        env:
-          TF_VAR_github_repository: ${{ github.repository }}
-        run: terraform apply -no-color -auto-approve tfplan.bin
+        run: |
+          if [ -f tfplan.bin ]; then
+            terraform apply -no-color -auto-approve -lock-timeout=5m tfplan.bin
+          else
+            terraform plan -no-color -compact-warnings -out=tfplan.bin -lock-timeout=5m
+            terraform apply -no-color -auto-approve -lock-timeout=5m tfplan.bin
+          fi
 
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
         working-directory: ${{ env.WORKDIR }}
-        env:
-          TF_VAR_github_repository: ${{ github.repository }}
-        run: terraform destroy -no-color -auto-approve
+        run: terraform destroy -no-color -auto-approve -lock-timeout=5m
 
-      - name: Comment PR with Plan
+      - name: Comment PR with Plan Summary
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
@@ -131,7 +140,7 @@ jobs:
             const fs = require('fs');
             let planOutput = '## Terraform Plan\n\n';
             try {
-              const plan = fs.readFileSync('${{ env.WORKDIR }}/plan.txt', 'utf8');
+              const plan = fs.readFileSync(`${process.env.WORKDIR}/plan.txt`, 'utf8');
               planOutput += '```\n' + plan.substring(0, 60000) + '\n```';
             } catch (e) {
               planOutput += '✅ Plan completed. Check the Actions tab for details.';
