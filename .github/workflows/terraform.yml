@@ -81,6 +81,8 @@ jobs:
 
       - name: Terraform Validate
         working-directory: ${{ env.WORKDIR }}
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
         run: terraform validate -no-color
 
       - name: Setup TFLint
@@ -95,6 +97,8 @@ jobs:
       - name: Terraform Plan
         if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
         run: |
           terraform plan -no-color -compact-warnings -out=tfplan.bin -lock-timeout=5m
           terraform show -no-color tfplan.bin > plan.txt
@@ -119,6 +123,8 @@ jobs:
       - name: Terraform Apply
         if: github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
         run: |
           if [ -f tfplan.bin ]; then
             terraform apply -no-color -auto-approve -lock-timeout=5m tfplan.bin
@@ -130,6 +136,8 @@ jobs:
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
         working-directory: ${{ env.WORKDIR }}
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
         run: terraform destroy -no-color -auto-approve -lock-timeout=5m
 
       - name: Comment PR with Plan Summary
