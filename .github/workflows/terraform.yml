@@ -92,7 +92,7 @@ jobs:
           soft_fail: true
 
       - name: Terraform Plan
-        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
@@ -101,7 +101,7 @@ jobs:
           terraform show -no-color tfplan.bin > plan.txt
 
       - name: Upload Plan Artifact
-        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan-${{ github.event.inputs.environment || 'dev' }}-${{ github.sha }}
