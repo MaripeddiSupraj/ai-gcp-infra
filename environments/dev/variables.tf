@@ -18,13 +18,13 @@ variable "region" {
 variable "network_name" {
   type        = string
   description = "VPC Network name"
-  default     = "gke-network"
+  default     = "gke-network-v2"
 }
 
 variable "subnet_name" {
   type        = string
   description = "Subnet name"
-  default     = "gke-subnet"
+  default     = "gke-subnet-v2"
 }
 
 variable "subnet_cidr" {
@@ -48,7 +48,7 @@ variable "services_cidr" {
 variable "cluster_name" {
   type        = string
   description = "GKE Cluster name"
-  default     = "primary-cluster"
+  default     = "primary-cluster-v2"
 }
 
 variable "cluster_type" {
@@ -76,7 +76,7 @@ variable "disk_size_gb" {
 variable "repository_id" {
   type        = string
   description = "Artifact Registry repository ID"
-  default     = "docker-repo"
+  default     = "docker-repo-v2"
 }
 
 variable "gar_format" {
