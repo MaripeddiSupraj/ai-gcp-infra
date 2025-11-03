@@ -91,11 +91,12 @@ variable "gar_description" {
   default     = "Docker repository for container images"
 }
 
-variable "alert_email" {
-  type        = string
-  description = "Email for monitoring alerts"
-  default     = "alerts@example.com"
-}
+# Temporarily disabled - enable with monitoring module
+# variable "alert_email" {
+#   type        = string
+#   description = "Email for monitoring alerts"
+#   default     = "alerts@example.com"
+# }
 
 variable "workload_identity_roles" {
   type        = list(string)
