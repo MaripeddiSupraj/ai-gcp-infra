@@ -24,7 +24,7 @@ on:
 
 concurrency:
   group: terraform-state-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   plan:
