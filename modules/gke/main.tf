@@ -33,16 +33,6 @@ resource "google_container_cluster" "primary" {
     horizontal_pod_autoscaling {
       disabled = false
     }
-    network_policy_config {
-      disabled = false
-    }
-    gcp_filestore_csi_driver_config {
-      enabled = true
-    }
-  }
-
-  vertical_pod_autoscaling {
-    enabled = true
   }
 
   monitoring_config {
@@ -56,10 +46,6 @@ resource "google_container_cluster" "primary" {
     enable_components = ["SYSTEM_COMPONENTS", "WORKLOADS"]
   }
 
-  network_policy {
-    enabled = true
-  }
-
   maintenance_policy {
     daily_maintenance_window {
       start_time = "03:00"
@@ -67,11 +53,6 @@ resource "google_container_cluster" "primary" {
   }
 
   deletion_protection = false
-
-  security_posture_config {
-    mode               = "BASIC"
-    vulnerability_mode = "VULNERABILITY_BASIC"
-  }
 
   # Cost allocation and management
   resource_labels = {

@@ -94,6 +94,29 @@ jobs:
           tflint --init
           tflint
 
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Infracost JSON
+        if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan'
+        working-directory: ${{ env.WORKDIR }}
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_github_repository: ${{ github.repository }}
+        run: |
+          infracost breakdown --path=. \
+            --format=json \
+            --out-file=/tmp/infracost.json
+
+      - name: Post Infracost Comment
+        if: github.event_name == 'pull_request'
+        uses: infracost/actions/comment@v1
+        with:
+          path: /tmp/infracost.json
+          behavior: update
+
       - name: Terraform Plan
         if: github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         working-directory: ${{ env.WORKDIR }}

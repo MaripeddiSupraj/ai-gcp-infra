@@ -62,12 +62,13 @@ module "gar" {
   description   = var.gar_description
 }
 
-module "monitoring" {
-  source = "../../modules/monitoring"
-
-  project_id  = var.project_id
-  alert_email = var.alert_email
-}
+# Temporarily disabled - enable after GKE cluster is created
+# module "monitoring" {
+#   source = "../../modules/monitoring"
+#
+#   project_id  = var.project_id
+#   alert_email = var.alert_email
+# }
 
 module "workload_identity" {
   source = "../../modules/security"
