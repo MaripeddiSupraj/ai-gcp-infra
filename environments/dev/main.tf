@@ -1,5 +1,5 @@
 # Dev environment configuration
-# Testing terraform workflow with PR
+# Testing terraform workflow with branch-scoped state
 terraform {
   required_version = ">= 1.0"
   required_providers {
