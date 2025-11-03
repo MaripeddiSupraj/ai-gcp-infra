@@ -1,96 +1,166 @@
-name: Terraform
+name: Terraform CI/CD
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - '**.tf'
+      - '**/*.tf'
+      - 'modules/**'
+      - 'environments/**'
+  push:
+    branches: [main]
+    paths:
+      - '**/*.tf'
       - 'modules/**'
       - 'environments/**'
   workflow_dispatch:
     inputs:
       action:
-        description: 'Terraform action'
+        description: 'Terraform action to perform'
         required: true
         type: choice
-        options:
-          - plan
-          - apply
-          - destroy
-        default: 'plan'
+        options: [plan, apply, destroy]
+        default: plan
+      environment:
+        description: 'Target environment (maps to environments/<env>)'
+        required: true
+        type: choice
+        options: [dev, stage, prod]
+        default: dev
 
 concurrency:
-  group: terraform-${{ github.ref }}
+  group: terraform-${{ github.ref }}-${{ github.event.inputs.environment || 'dev' }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write  # For OIDC-based auth
+
+env:
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: 'false'
+  TF_CLI_ARGS_init: '-upgrade'
+  WORKDIR: environments/${{ github.event.inputs.environment || 'dev' }}
 
 jobs:
   terraform:
+    name: Terraform Workflow
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy' && 'production' || null }}
-    permissions:
-      contents: read
-      pull-requests: write
+    environment: ${{ github.event.inputs.environment == 'prod' && 'production' || github.event.inputs.environment == 'stage' && 'staging' || 'development' }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: 1.8.5  # Latest stable for production
 
-      - uses: google-github-actions/auth@v2
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Terraform Init
+        working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
-        run: cd environments/dev && terraform init
+        run: terraform init -no-color
 
-      - name: Terraform Format
-        if: github.event.inputs.action != 'destroy'
-        run: terraform fmt -check -recursive
-        continue-on-error: true
+      - name: Terraform Fmt
+        run: terraform fmt -check -recursive || true
 
       - name: Terraform Validate
-        if: github.event.inputs.action != 'destroy'
+        working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
-        run: cd environments/dev && terraform validate
+        run: terraform validate -no-color
 
-      - name: TFLint
-        if: github.event.inputs.action != 'destroy'
-        working-directory: environments/dev
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Run TFLint
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
           tflint --init
           tflint
 
+      - name: tfsec Security Scan
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: ${{ env.WORKDIR }}
+          soft_fail: true
+
       - name: Terraform Plan
-        if: github.event.inputs.action != 'destroy'
+        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
-        run: cd environments/dev && terraform plan -no-color -compact-warnings
+        run: |
+          terraform plan -no-color -compact-warnings -out=tfplan.bin
+          terraform show -no-color tfplan.bin > plan.txt
+
+      - name: Upload Plan Artifact
+        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ github.event.inputs.environment || 'dev' }}-${{ github.sha }}
+          path: |
+            ${{ env.WORKDIR }}/tfplan.bin
+            ${{ env.WORKDIR }}/plan.txt
 
       - name: Terraform Apply
         if: github.event.inputs.action == 'apply'
+        working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
-        run: cd environments/dev && terraform apply -no-color -auto-approve
+        run: terraform apply -no-color -auto-approve tfplan.bin
 
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
+        working-directory: ${{ env.WORKDIR }}
         env:
           TF_VAR_github_repository: ${{ github.repository }}
-        run: cd environments/dev && terraform destroy -no-color -auto-approve
+        run: terraform destroy -no-color -auto-approve
 
-      - name: Comment PR
+      - name: Comment PR with Plan
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            let planOutput = '## Terraform Plan\n\n';
+            try {
+              const plan = fs.readFileSync('${{ env.WORKDIR }}/plan.txt', 'utf8');
+              planOutput += '```\n' + plan.substring(0, 60000) + '\n```';
+            } catch (e) {
+              planOutput += '✅ Plan completed. Check the Actions tab for details.';
+            }
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '## Terraform Plan\n\n✅ Plan completed. Check the Actions tab for details.'
+              body: planOutput
             });
+
+      - name: Slack Notification
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Terraform workflow failed for ${{ github.repository }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Terraform ${{ github.event.inputs.action || 'plan' }}* failed\n*Environment:* ${{ github.event.inputs.environment || 'dev' }}\n*Branch:* ${{ github.ref_name }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+        continue-on-error: true
