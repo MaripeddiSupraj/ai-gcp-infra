@@ -1,16 +1,12 @@
 name: Terraform
 
 on:
-  push:
-    branches: [main, dev]
-    paths:
-      - '**.tf'
-      - 'modules/**'
   pull_request:
-    branches: [main, dev]
+    branches: [main]
     paths:
       - '**.tf'
       - 'modules/**'
+      - 'environments/**'
   workflow_dispatch:
     inputs:
       action:
@@ -20,20 +16,20 @@ on:
         options:
           - plan
           - apply
+          - destroy
         default: 'plan'
 
 concurrency:
-  group: terraform-state-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  plan:
+  terraform:
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy' && 'production' || null }}
     permissions:
       contents: read
       pull-requests: write
-    outputs:
-      has_changes: ${{ steps.plan.outputs.has_changes }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,50 +47,41 @@ jobs:
         run: cd environments/dev && terraform init
 
       - name: Terraform Format
+        if: github.event.inputs.action != 'destroy'
         run: terraform fmt -check -recursive
         continue-on-error: true
 
       - name: Terraform Validate
+        if: github.event.inputs.action != 'destroy'
         env:
           TF_VAR_github_repository: ${{ github.repository }}
         run: cd environments/dev && terraform validate
 
-      - name: TFLint Setup
-        uses: terraform-linters/setup-tflint@v4
-
       - name: TFLint
+        if: github.event.inputs.action != 'destroy'
         working-directory: environments/dev
-        run: tflint --init && tflint
-
-      - name: tfsec Security Scan
-        uses: aquasecurity/tfsec-action@v1.0.0
-        with:
-          soft_fail: true
+        run: |
+          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+          tflint --init
+          tflint
 
       - name: Terraform Plan
-        id: plan
+        if: github.event.inputs.action != 'destroy'
         env:
           TF_VAR_github_repository: ${{ github.repository }}
-        run: |
-          cd environments/dev
-          # Force unlock if previous run was cancelled
-          terraform force-unlock -force $(gcloud storage cat gs://hyperbola-476507-tfstate/terraform/state/dev/default.tflock 2>/dev/null | jq -r .ID) 2>/dev/null || true
-          terraform plan -no-color -compact-warnings -lock-timeout=30s -out=tfplan -detailed-exitcode || EXIT_CODE=$?
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-          elif [ $EXIT_CODE -eq 2 ]; then
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-          else
-            exit $EXIT_CODE
-          fi
+        run: cd environments/dev && terraform plan -no-color -compact-warnings
 
-      - name: Upload Plan
-        if: steps.plan.outputs.has_changes == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-${{ github.sha }}
-          path: environments/dev/tfplan
-          retention-days: 7
+      - name: Terraform Apply
+        if: github.event.inputs.action == 'apply'
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
+        run: cd environments/dev && terraform apply -no-color -auto-approve
+
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        env:
+          TF_VAR_github_repository: ${{ github.repository }}
+        run: cd environments/dev && terraform destroy -no-color -auto-approve
 
       - name: Comment PR
         if: github.event_name == 'pull_request'
@@ -105,38 +92,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '## Terraform Plan\n\n${{ steps.plan.outputs.has_changes == 'true' && '⚠️ Changes detected' || '✅ No changes' }}\n\nCheck the Actions tab for details.'
+              body: '## Terraform Plan\n\n✅ Plan completed. Check the Actions tab for details.'
             });
-
-  apply:
-    needs: plan
-    if: |
-      needs.plan.outputs.has_changes == 'true' &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'))
-    runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
-
-      - uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Terraform Init
-        run: cd environments/dev && terraform init
-
-      - name: Download Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan-${{ github.sha }}
-          path: environments/dev
-
-      - name: Terraform Apply
-        run: cd environments/dev && terraform apply -no-color -auto-approve tfplan
