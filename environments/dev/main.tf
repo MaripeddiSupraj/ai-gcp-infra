@@ -1,5 +1,5 @@
 # Dev environment configuration
-# Testing terraform workflow with PR
+# Verifying terraform plan output in PR
 terraform {
   required_version = ">= 1.0"
   required_providers {
