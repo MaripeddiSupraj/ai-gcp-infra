@@ -118,7 +118,7 @@ resource "google_container_node_pool" "spot" {
   }
 
   node_config {
-    machine_type = "e2-medium" # Cost-effective
+    machine_type = var.machine_type # Cost-effective
     disk_size_gb = var.disk_size_gb
     disk_type    = "pd-standard"
     spot         = true
