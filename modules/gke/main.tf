@@ -118,8 +118,8 @@ resource "google_container_node_pool" "spot" {
   }
 
   node_config {
-    machine_type = "e2-medium" # Cost-effective
-    disk_size_gb = 50
+    machine_type = var.machine_type # Cost-effective
+    disk_size_gb = var.disk_size_gb
     disk_type    = "pd-standard"
     spot         = true
     image_type   = "COS_CONTAINERD"
@@ -174,7 +174,7 @@ resource "google_container_node_pool" "on_demand" {
 
   node_config {
     machine_type = "n2-standard-2" # Better performance
-    disk_size_gb = 100
+    disk_size_gb = var.disk_size_gb
     disk_type    = "pd-ssd" # Faster disk
     spot         = false
     image_type   = "COS_CONTAINERD"

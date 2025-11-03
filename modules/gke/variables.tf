@@ -28,3 +28,15 @@ variable "environment" {
   default     = "production"
   description = "Environment label for the cluster (e.g., production, staging, development)"
 }
+
+variable "disk_size_gb" {
+  type        = number
+  description = "Node disk size in GB"
+  default     = 50
+}
+
+variable "machine_type" {
+  type        = string
+  description = "Machine type for nodes"
+  default     = "e2-medium"
+}
