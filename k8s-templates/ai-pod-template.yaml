@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-env-UUID_PLACEHOLDER
+  labels:
+    app: ai-environment
+    uuid: UUID_PLACEHOLDER
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-environment
+      uuid: UUID_PLACEHOLDER
+  template:
+    metadata:
+      labels:
+        app: ai-environment
+        uuid: UUID_PLACEHOLDER
+    spec:
+      containers:
+      - name: ai-environment
+        image: us-central1-docker.pkg.dev/PROJECT_ID/ai-images/ai-environment:v1.0
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        ports:
+        - containerPort: 1111
+          name: nginx-proxy
+        - containerPort: 3000
+          name: frontend
+        - containerPort: 8001
+          name: backend
+        - containerPort: 8080
+          name: vscode
+        volumeMounts:
+        - name: app-storage
+          mountPath: /app
+        - name: data-storage
+          mountPath: /data
+        - name: log-storage
+          mountPath: /var/log
+        env:
+        - name: POD_UUID
+          value: UUID_PLACEHOLDER
+      volumes:
+      - name: app-storage
+        persistentVolumeClaim:
+          claimName: app-pvc-UUID_PLACEHOLDER
+      - name: data-storage
+        persistentVolumeClaim:
+          claimName: data-pvc-UUID_PLACEHOLDER
+      - name: log-storage
+        persistentVolumeClaim:
+          claimName: log-pvc-UUID_PLACEHOLDER
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-service-UUID_PLACEHOLDER
+  labels:
+    app: ai-environment
+    uuid: UUID_PLACEHOLDER
+spec:
+  selector:
+    app: ai-environment
+    uuid: UUID_PLACEHOLDER
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: vscode
+  - port: 3000
+    targetPort: 3000
+    name: frontend
+  - port: 8001
+    targetPort: 8001
+    name: backend
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-ingress-UUID_PLACEHOLDER
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: vscode-UUID_PLACEHOLDER.preview.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: agent-service-UUID_PLACEHOLDER
+            port:
+              number: 8080
