@@ -1,31 +1,94 @@
-FROM python:3.11-slim AS builder
+# Build stage for Python dependencies
+FROM ubuntu:22.04 AS python-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-RUN pip install --no-cache-dir --upgrade pip
-
 COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --user -r requirements.txt
+RUN pip3 install --no-cache-dir --user -r requirements.txt
 
-FROM python:3.11-slim
+# Build stage for Node/Yarn
+FROM ubuntu:22.04 AS node-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nodejs \
+    npm \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g yarn
+
+# Build stage for VSCode Server
+FROM ubuntu:22.04 AS vscode-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# Final runtime stage
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    git \
+    vim \
+    nginx \
+    supervisor \
+    python3 \
+    nodejs \
+    mongodb \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy Python packages from builder
+COPY --from=python-builder /root/.local /root/.local
+
+# Copy Yarn from builder
+COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node-builder /usr/local/bin/yarn /usr/local/bin/yarn
+COPY --from=node-builder /usr/local/bin/yarnpkg /usr/local/bin/yarnpkg
+
+# Copy VSCode Server from builder
+COPY --from=vscode-builder /usr/bin/code-server /usr/bin/code-server
+COPY --from=vscode-builder /usr/lib/code-server /usr/lib/code-server
+
+# Set Python path
+ENV PATH=/root/.local/bin:$PATH
+
+# Create application directories
+RUN mkdir -p /app /data/db /var/log/supervisor
 
 WORKDIR /app
 
-RUN groupadd -r appuser && useradd -r -g appuser appuser && \
-    chown -R appuser:appuser /app
+# Copy application files
+COPY . /app/
 
-COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
-COPY --chown=appuser:appuser . .
+# Configure supervisor
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-USER appuser
+# Configure Nginx
+COPY nginx.conf /etc/nginx/nginx-code-server.conf
 
-ENV PATH=/home/appuser/.local/bin:$PATH
-ENV PYTHONUNBUFFERED=1
+# Expose ports
+EXPOSE 1111 3000 8001 8010 8080 27017
 
-EXPOSE 8080
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
-
-CMD ["gunicorn", "-b", "0.0.0.0:8080", "-w", "2", "--access-logfile", "-", "app:app"]
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]

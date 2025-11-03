@@ -1,16 +1,44 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 *.so
+.Python
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
 .env
 .venv
+env/
 venv/
-*.log
-.git
-.gitignore
-README.md
-.pytest_cache
+ENV/
+
+# Testing
+.pytest_cache/
 .coverage
 htmlcov/
+.tox/
+
+# Development
+.git/
+.gitignore
+.gitattributes
+README.md
+*.md
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
