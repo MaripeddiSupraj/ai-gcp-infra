@@ -23,7 +23,7 @@ resource "google_container_cluster" "primary" {
   }
 
   binary_authorization {
-    evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
+    evaluation_mode = "DISABLED"
   }
 
   addons_config {
@@ -71,7 +71,7 @@ resource "google_container_cluster" "primary" {
     }
   }
 
-  deletion_protection = true
+  deletion_protection = false
 
   security_posture_config {
     mode               = "BASIC"
