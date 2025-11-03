@@ -84,9 +84,9 @@ module "github_actions_wi" {
   source = "../../modules/wi-federation"
 
   project_id                   = var.project_id
-  pool_id                      = "github-actions-pool"
-  pool_display_name            = "GitHub Actions Pool"
-  provider_id                  = "github-actions-provider"
+  pool_id                      = "github-actions-pool-v2"
+  pool_display_name            = "GitHub Actions Pool V2"
+  provider_id                  = "github-actions-provider-v2"
   provider_display_name        = "GitHub Actions Provider"
   service_account_id           = "github-actions-sa"
   service_account_display_name = "GitHub Actions Service Account"
