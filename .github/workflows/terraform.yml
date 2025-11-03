@@ -60,6 +60,7 @@ jobs:
 
       - name: TFLint
         run: tflint --init && tflint --recursive
+        working-directory: environments/dev
 
       - name: tfsec Security Scan
         uses: aquasecurity/tfsec-action@v1.0.0
