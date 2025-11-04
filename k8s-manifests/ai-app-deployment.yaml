@@ -18,7 +18,7 @@ spec:
       - name: ai-environment
         image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest
         ports:
-        - containerPort: 8080
+        - containerPort: 1111
           name: http
         resources:
           requests:
@@ -30,13 +30,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 8001
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 8001
           initialDelaySeconds: 5
           periodSeconds: 5
 ---
@@ -50,7 +50,7 @@ spec:
   type: LoadBalancer
   ports:
   - port: 80
-    targetPort: 8080
+    targetPort: 1111
     protocol: TCP
     name: http
   selector:
