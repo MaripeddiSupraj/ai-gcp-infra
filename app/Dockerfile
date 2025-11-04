@@ -86,14 +86,12 @@ RUN mkdir -p /app /data/db /var/log/supervisor
 
 WORKDIR /app
 
+# Copy configuration files
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY nginx.conf /etc/nginx/nginx-code-server.conf
+
 # Copy application files
 COPY . /app/
-
-# Configure supervisor
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# Configure Nginx
-COPY nginx.conf /etc/nginx/nginx-code-server.conf
 
 # Expose ports
 EXPOSE 1111 3000 8001 8010 8080 27017

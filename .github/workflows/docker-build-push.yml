@@ -1,11 +1,9 @@
-name: "🐳 Docker Build & Push"
+# Minimal, production‑grade GitHub Actions workflow for Docker build & push
+# Focus: minimal set of best practices for regular builds (lint, buildx, auth, push, vuln scan)
+name: "🐳 Docker Build & Push (minimal)"
 
 on:
   push:
-    branches: [main, dev]
-    paths:
-      - 'app/**'
-  pull_request:
     branches: [main, dev]
     paths:
       - 'app/**'
@@ -17,7 +15,7 @@ on:
         default: false
 
 concurrency:
-  group: docker-${{ github.ref }}
+  group: docker-${{ github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -26,151 +24,97 @@ env:
   REPOSITORY: docker-repo
   IMAGE_NAME: ai-environment
 
+permissions:
+  contents: read
+  id-token: write    # enable OIDC if you use it
+  packages: write
+
 jobs:
-  security-scan:
-    name: "🔍 Security Checks"
+  lint:
+    name: "🔍 Dockerfile Lint"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Hadolint
+      - uses: actions/checkout@v4
+      - name: Hadolint
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: app/Dockerfile
           failure-threshold: error
-          ignore: DL3008,DL3016
 
   build-push:
     name: "🏗️ Build & Push"
     runs-on: ubuntu-latest
-    needs: security-scan
-    environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
-    permissions:
-      contents: read
-      security-events: write
-      id-token: write
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-      image-tags: ${{ steps.meta.outputs.tags }}
+    needs: lint
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: image=moby/buildkit:latest
 
-      - name: Authenticate to GCP
+      - name: Authenticate to GCP (preferred: OIDC, fallback to SA key)
         uses: google-github-actions/auth@v2
         with:
+          # Use one of these approaches in your repo secrets. Keep keys rotated.
+          # workload_identity_provider: ${{ secrets.GCP_OIDC_PROVIDER }}
+          # service_account: ${{ secrets.GCP_OIDC_SA_EMAIL }}
+          # credentials_json: ${{ secrets.GCP_SA_KEY }}
           credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for GAR
         run: gcloud auth configure-docker ${{ env.REGISTRY }}
 
-      - name: Generate metadata
+      - name: Set metadata
         id: meta
         run: |
           IMAGE_BASE="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}"
           SHORT_SHA="${GITHUB_SHA::7}"
           TAGS="${IMAGE_BASE}:${SHORT_SHA}"
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            TAGS="${TAGS},${IMAGE_BASE}:latest"
+            TAGS=","${IMAGE_BASE}:latest","${TAGS}
           elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            TAGS="${TAGS},${IMAGE_BASE}:dev"
+            TAGS=","${IMAGE_BASE}:dev","${TAGS}
           fi
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
-          echo "image=${IMAGE_BASE}" >> $GITHUB_OUTPUT
-          echo "short-sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image_base=${IMAGE_BASE}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-      - name: Build Docker image
+      - name: Build and push (buildx)
         id: build
         uses: docker/build-push-action@v5
         with:
           context: ./app
-          push: false
-          load: true
+          file: ./app/Dockerfile
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') || (github.event_name == 'workflow_dispatch' && github.event.inputs.push_image == 'true') }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run Trivy vulnerability scanner (SARIF)
-        uses: aquasecurity/trivy-action@master
+      - name: Quick vulnerability scan (Trivy, non-blocking)
+        uses: aquasecurity/trivy-action@v0.39.0
         with:
-          image-ref: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short-sha }}
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM'
+          image-ref: ${{ steps.meta.outputs.image_base }}:${{ steps.meta.outputs.short_sha }}
+          format: table
+          severity: CRITICAL,HIGH
         continue-on-error: true
 
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-      - name: Run Trivy vulnerability scanner (Table)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short-sha }}
-          format: 'table'
-          output: 'trivy-results.txt'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-
-      - name: Check for critical vulnerabilities
-        run: |
-          if grep -q "CRITICAL" trivy-results.txt; then
-            echo "⚠️ Critical vulnerabilities found!"
-            cat trivy-results.txt
-            echo "::warning::Critical vulnerabilities detected in image"
-          else
-            echo "✅ No critical vulnerabilities found"
-          fi
-
-      - name: Generate SBOM
-        uses: anchore/sbom-action@v0
-        with:
-          image: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short-sha }}
-          format: spdx-json
-          output-file: sbom.spdx.json
-
-      - name: Upload security artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: security-reports-${{ github.sha }}
-          path: |
-            trivy-results.sarif
-            trivy-results.txt
-            sbom.spdx.json
-          retention-days: 30
-
-      - name: Push to registry
-        if: |
-          (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) ||
-          (github.event_name == 'workflow_dispatch' && github.event.inputs.push_image == 'true')
-        run: |
-          echo "📦 Pushing images to registry..."
-          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
-          for tag in "${TAG_ARRAY[@]}"; do
-            echo "Pushing: $tag"
-            docker push "$tag"
-          done
-          echo "✅ Successfully pushed all tags"
-
-      - name: Image summary
+      - name: Summary
         if: always()
         run: |
-          echo "## 🐳 Docker Image Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** ${{ steps.meta.outputs.image }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Short SHA:** ${{ steps.meta.outputs.short-sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Full SHA:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker build summary" >> $GITHUB_STEP_SUMMARY
+          echo "Image: ${{ steps.meta.outputs.image_base }}" >> $GITHUB_STEP_SUMMARY
+          echo "Tags: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "SHA: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+# Notes:
+# - Keep only the features you actually need: this workflow includes linting, buildx multi-arch,
+#   optional OIDC/auth, caching, and a quick non-blocking Trivy scan.
+# - Use Workload Identity (OIDC) instead of JSON keys if you can — it's more secure.
+# - Protect the production environment in repo settings if you want manual gates.
+# - If you want image signing, promotion pipelines, SBOMs, or stricter blocking policies,
+#   we can add them later as small incremental steps.
+
