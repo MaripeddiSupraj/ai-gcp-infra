@@ -62,6 +62,15 @@ module "gar" {
   description   = var.gar_description
 }
 
+# Grant GKE nodes access to pull images from Artifact Registry
+resource "google_artifact_registry_repository_iam_member" "gke_reader" {
+  project    = var.project_id
+  location   = var.region
+  repository = module.gar.repository_id
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${var.project_id}-compute@developer.gserviceaccount.com"
+}
+
 # Temporarily disabled - enable after GKE cluster is created
 # module "monitoring" {
 #   source = "../../modules/monitoring"
