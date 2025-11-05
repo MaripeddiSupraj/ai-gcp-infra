@@ -61,16 +61,6 @@ variable "cluster_type" {
   }
 }
 
-variable "cluster_type" {
-  type        = string
-  description = "GKE cluster type: standard or autopilot"
-  default     = "standard"
-  validation {
-    condition     = contains(["standard", "autopilot"], var.cluster_type)
-    error_message = "cluster_type must be either 'standard' or 'autopilot'"
-  }
-}
-
 variable "machine_type" {
   type        = string
   description = "Machine type for nodes"
