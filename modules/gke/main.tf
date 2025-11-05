@@ -78,11 +78,12 @@ resource "google_container_cluster" "primary" {
     enabled = true
   }
 
-  # Backup configuration for disaster recovery
-  # Note: Requires GKE Backup API to be enabled
-  # lifecycle {
-  #   ignore_changes = [node_config]
-  # }
+  # Cost optimization: Node auto-provisioning
+  node_pool_auto_config {
+    network_tags {
+      tags = ["gke-node", var.environment]
+    }
+  }
 }
 
 # Spot node pool - DEFAULT for cost savings (70% cheaper)
@@ -202,3 +203,5 @@ resource "google_container_node_pool" "on_demand" {
     max_unavailable = 0
   }
 }
+
+
