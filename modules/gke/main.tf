@@ -57,25 +57,33 @@ resource "google_container_cluster" "primary" {
     managed_by  = "terraform"
   }
 
-  # Private cluster for security (optional - can be enabled via variable)
-  # private_cluster_config {
-  #   enable_private_nodes    = true
-  #   enable_private_endpoint = false
-  #   master_ipv4_cidr_block  = "172.16.0.0/28"
-  # }
+  # Cost optimization: Cluster autoscaler
+  cluster_autoscaling {
+    enabled = true
+    autoscaling_profile = "OPTIMIZE_UTILIZATION"
+    resource_limits {
+      resource_type = "cpu"
+      minimum       = 1
+      maximum       = 100
+    }
+    resource_limits {
+      resource_type = "memory"
+      minimum       = 1
+      maximum       = 200
+    }
+  }
 
-  # master_authorized_networks_config {
-  #   cidr_blocks {
-  #     cidr_block   = "0.0.0.0/0"
-  #     display_name = "All networks"
-  #   }
-  # }
+  # Enable VPA for cost optimization
+  vertical_pod_autoscaling {
+    enabled = true
+  }
 
-  # Backup configuration for disaster recovery
-  # Note: Requires GKE Backup API to be enabled
-  # lifecycle {
-  #   ignore_changes = [node_config]
-  # }
+  # Cost optimization: Node auto-provisioning
+  node_pool_auto_config {
+    network_tags {
+      tags = ["gke-node", var.environment]
+    }
+  }
 }
 
 # Spot node pool - DEFAULT for cost savings (70% cheaper)
@@ -86,14 +94,16 @@ resource "google_container_node_pool" "spot" {
   project  = var.project_id
 
   autoscaling {
-    min_node_count = 2
+    min_node_count = 0
     max_node_count = 20
+    location_policy = "ANY"
   }
 
   node_config {
     machine_type = var.machine_type # Cost-effective
     disk_size_gb = var.disk_size_gb
     disk_type    = "pd-standard"
+    preemptible  = false
     spot         = true
     image_type   = "COS_CONTAINERD"
 
@@ -141,14 +151,15 @@ resource "google_container_node_pool" "on_demand" {
   project  = var.project_id
 
   autoscaling {
-    min_node_count = 1
+    min_node_count = 0
     max_node_count = 5
+    location_policy = "ANY"
   }
 
   node_config {
     machine_type = "n2-standard-2" # Better performance
     disk_size_gb = var.disk_size_gb
-    disk_type    = "pd-ssd" # Faster disk
+    disk_type    = "pd-standard"
     spot         = false
     image_type   = "COS_CONTAINERD"
 
@@ -192,3 +203,5 @@ resource "google_container_node_pool" "on_demand" {
     max_unavailable = 0
   }
 }
+
+

@@ -74,6 +74,12 @@ resource "google_artifact_registry_repository_iam_member" "gke_reader" {
   repository = module.gar.repository_id
   role       = "roles/artifactregistry.reader"
   member     = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+
+  depends_on = [
+    module.gar,
+    module.gke_standard,
+    module.gke_autopilot
+  ]
 }
 
 # Temporarily disabled - enable after GKE cluster is created
