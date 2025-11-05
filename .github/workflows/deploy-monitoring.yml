@@ -1,0 +1,119 @@
+name: "📊 Deploy Monitoring Stack"
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - 'k8s-manifests/monitoring-namespace.yaml'
+      - 'k8s-manifests/prometheus-values.yaml'
+      - '.github/workflows/deploy-monitoring.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GKE_CLUSTER: primary-cluster-v2
+  GKE_REGION: us-central1
+  MONITORING_NAMESPACE: monitoring
+
+jobs:
+  deploy-monitoring:
+    name: "📊 Deploy Prometheus & Grafana"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+
+      - name: Get GKE Credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --region ${{ env.GKE_REGION }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.13.0'
+
+      - name: Add Helm Repositories
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+
+      - name: Create Monitoring Namespace
+        run: |
+          kubectl apply -f k8s-manifests/monitoring-namespace.yaml
+
+      - name: Deploy kube-prometheus-stack
+        run: |
+          helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+            --namespace ${{ env.MONITORING_NAMESPACE }} \
+            --values k8s-manifests/prometheus-values.yaml \
+            --version 55.0.0 \
+            --wait \
+            --timeout 10m
+
+      - name: Wait for Pods to be Ready
+        run: |
+          kubectl wait --for=condition=ready pod \
+            --all \
+            --namespace ${{ env.MONITORING_NAMESPACE }} \
+            --timeout=600s
+
+      - name: Get Grafana LoadBalancer IP
+        id: grafana-ip
+        run: |
+          echo "Waiting for LoadBalancer IP..."
+          for i in {1..30}; do
+            GRAFANA_IP=$(kubectl get svc prometheus-grafana -n ${{ env.MONITORING_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ ! -z "$GRAFANA_IP" ]; then
+              echo "grafana_ip=$GRAFANA_IP" >> $GITHUB_OUTPUT
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Display Access Information
+        run: |
+          echo "=========================================="
+          echo "✅ Monitoring Stack Deployed Successfully!"
+          echo "=========================================="
+          echo ""
+          echo "📊 Grafana Access:"
+          echo "  URL: http://${{ steps.grafana-ip.outputs.grafana_ip }}"
+          echo "  Username: admin"
+          echo "  Password: ChangeMe123!"
+          echo ""
+          echo "📈 Pre-configured Dashboards:"
+          echo "  - Kubernetes Cluster (ID: 7249)"
+          echo "  - Kubernetes Pods (ID: 6417) - Per-pod metrics"
+          echo "  - Node Exporter (ID: 1860)"
+          echo "  - GKE Cluster (ID: 12114)"
+          echo ""
+          echo "🔍 View Your Pods:"
+          echo "  1. Go to Dashboards → Kubernetes Pods"
+          echo "  2. Select namespace: default"
+          echo "  3. Select pod: ai-environment-*"
+          echo ""
+          echo "=========================================="
+
+      - name: Verify Prometheus Targets
+        run: |
+          kubectl port-forward -n ${{ env.MONITORING_NAMESPACE }} svc/prometheus-kube-prometheus-prometheus 9090:9090 &
+          sleep 5
+          echo "Prometheus is scraping the following targets:"
+          curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health: .health}' || true
