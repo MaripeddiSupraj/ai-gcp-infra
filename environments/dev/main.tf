@@ -114,3 +114,12 @@ module "github_actions_wi" {
   github_repository            = var.github_repository
 }
 
+module "storage" {
+  source = "../../modules/storage"
+
+  project_id                   = var.project_id
+  region                       = var.region
+  environment                  = var.environment
+  workload_identity_sa_email   = module.workload_identity.service_account_email
+}
+
