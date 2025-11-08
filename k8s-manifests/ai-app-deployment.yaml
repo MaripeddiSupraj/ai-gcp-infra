@@ -4,6 +4,7 @@ metadata:
   name: ai-environment
   labels:
     app: ai-environment
+    version: v1.0.3
 spec:
   replicas: 1
   selector:
