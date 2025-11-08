@@ -1,5 +1,5 @@
 # Dev environment configuration
-# Verifying terraform plan output in PR
+# Deploying infrastructure
 terraform {
   required_version = ">= 1.0"
   required_providers {
