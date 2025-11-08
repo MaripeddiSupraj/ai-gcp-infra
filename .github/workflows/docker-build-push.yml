@@ -21,8 +21,8 @@ concurrency:
 env:
   REGISTRY: us-central1-docker.pkg.dev
   PROJECT_ID: hyperbola-476507
-  REPOSITORY: ai-chat-repo
-  IMAGE_NAME: ai-chat-app
+  REPOSITORY: docker-repo
+  IMAGE_NAME: ai-environment
 
 permissions:
   contents: read

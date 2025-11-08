@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: ai-environment
-        image: us-central1-docker.pkg.dev/hyperbola-476507/ai-chat-repo/ai-chat-app:latest
+        image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest
         ports:
         - containerPort: 1111
           name: http
