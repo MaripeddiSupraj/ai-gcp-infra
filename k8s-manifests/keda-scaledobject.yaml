@@ -9,7 +9,7 @@ spec:
   minReplicaCount: 0
   maxReplicaCount: 1
   pollingInterval: 30
-  cooldownPeriod: 300
+  cooldownPeriod: 120
   idleReplicaCount: 0
   triggers:
   - type: redis
