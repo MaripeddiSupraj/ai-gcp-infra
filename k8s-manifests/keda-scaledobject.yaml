@@ -1,0 +1,20 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ai-environment-scaler
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: ai-environment
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  pollingInterval: 30
+  cooldownPeriod: 300
+  idleReplicaCount: 0
+  triggers:
+  - type: redis
+    metadata:
+      address: redis.default.svc.cluster.local:6379
+      listName: user_messages
+      listLength: "1"
+      activationListLength: "1"
