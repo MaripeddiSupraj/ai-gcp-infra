@@ -3,6 +3,7 @@ from kubernetes import client, config
 import redis
 import uuid
 import os
+import yaml
 
 app = Flask(__name__)
 
@@ -14,6 +15,7 @@ except:
 
 v1 = client.AppsV1Api()
 core_v1 = client.CoreV1Api()
+custom_api = client.CustomObjectsApi()
 r = redis.Redis(host='redis', port=6379, decode_responses=True)
 
 @app.route('/health')
@@ -66,6 +68,38 @@ def create_session():
     )
     
     core_v1.create_namespaced_service(namespace="default", body=service)
+    
+    # Create KEDA ScaledObject for this user
+    scaledobject = {
+        "apiVersion": "keda.sh/v1alpha1",
+        "kind": "ScaledObject",
+        "metadata": {"name": f"user-{session_uuid}-scaler"},
+        "spec": {
+            "scaleTargetRef": {"name": f"user-{session_uuid}"},
+            "minReplicaCount": 0,
+            "maxReplicaCount": 1,
+            "pollingInterval": 30,
+            "cooldownPeriod": 120,
+            "idleReplicaCount": 0,
+            "triggers": [{
+                "type": "redis",
+                "metadata": {
+                    "address": "redis.default.svc.cluster.local:6379",
+                    "listName": f"queue:{session_uuid}",
+                    "listLength": "1",
+                    "activationListLength": "1"
+                }
+            }]
+        }
+    }
+    
+    custom_api.create_namespaced_custom_object(
+        group="keda.sh",
+        version="v1alpha1",
+        namespace="default",
+        plural="scaledobjects",
+        body=scaledobject
+    )
     
     # Store session
     r.hset(f'session:{session_uuid}', mapping={'user_id': user_id, 'status': 'created'})
