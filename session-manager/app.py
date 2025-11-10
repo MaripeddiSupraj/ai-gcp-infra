@@ -177,6 +177,9 @@ def create_session():
     if not user_id:
         raise ValueError("user_id is required")
     
+    # Sanitize user_id for Kubernetes labels (alphanumeric, -, _, .)
+    user_id_label = user_id.replace('@', '-').replace('/', '-').replace(':', '-')
+    
     logger.info(f"🆕 Creating session for user: {user_id}")
     
     try:
@@ -184,7 +187,7 @@ def create_session():
         deployment = client.V1Deployment(
             metadata=client.V1ObjectMeta(
                 name=f"user-{session_uuid}",
-                labels={"session-uuid": session_uuid, "user-id": user_id}
+                labels={"session-uuid": session_uuid, "user-id": user_id_label}
             ),
             spec=client.V1DeploymentSpec(
                 replicas=0,
@@ -193,7 +196,7 @@ def create_session():
                 ),
                 template=client.V1PodTemplateSpec(
                     metadata=client.V1ObjectMeta(
-                        labels={"app": f"user-{session_uuid}", "uuid": session_uuid, "user-id": user_id}
+                        labels={"app": f"user-{session_uuid}", "uuid": session_uuid, "user-id": user_id_label}
                     ),
                     spec=client.V1PodSpec(
                         containers=[
