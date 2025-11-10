@@ -335,11 +335,15 @@ def create_session():
         elapsed = time.time() - start_time
         logger.info(f"🎉 Session created successfully in {elapsed:.2f}s: {session_uuid}")
         
+        # Construct workspace URL for client
+        workspace_url = f"vs-code-{session_uuid}.example.com"
+        
         return jsonify({
             'uuid': session_uuid,
             'user_id': user_id,
             'status': 'created',
-            'created_at': datetime.utcnow().isoformat()
+            'created_at': datetime.utcnow().isoformat(),
+            'workspace_url': workspace_url
         }), 201
         
     except Exception as e:
