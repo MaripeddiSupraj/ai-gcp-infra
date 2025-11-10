@@ -247,7 +247,7 @@ def create_session():
         v1.create_namespaced_deployment(namespace="default", body=deployment)
         logger.info(f"✅ Deployment created: user-{session_uuid}")
         
-        # Create service
+        # Create ClusterIP service (internal)
         service = client.V1Service(
             metadata=client.V1ObjectMeta(
                 name=f"user-{session_uuid}",
@@ -261,6 +261,43 @@ def create_session():
         
         core_v1.create_namespaced_service(namespace="default", body=service)
         logger.info(f"✅ Service created: user-{session_uuid}")
+        
+        # Create Ingress for external access via subdomain
+        ingress = client.V1Ingress(
+            metadata=client.V1ObjectMeta(
+                name=f"user-{session_uuid}",
+                labels={"session-uuid": session_uuid},
+                annotations={
+                    "kubernetes.io/ingress.class": "nginx",
+                    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+                }
+            ),
+            spec=client.V1IngressSpec(
+                rules=[client.V1IngressRule(
+                    host=f"vs-code-{session_uuid}.preview.hyperbola.in",
+                    http=client.V1HTTPIngressRuleValue(
+                        paths=[client.V1HTTPIngressPath(
+                            path="/",
+                            path_type="Prefix",
+                            backend=client.V1IngressBackend(
+                                service=client.V1IngressServiceBackend(
+                                    name=f"user-{session_uuid}",
+                                    port=client.V1ServiceBackendPort(number=80)
+                                )
+                            )
+                        )]
+                    )
+                )],
+                tls=[client.V1IngressTLS(
+                    hosts=[f"vs-code-{session_uuid}.preview.hyperbola.in"],
+                    secret_name=f"tls-{session_uuid}"
+                )]
+            )
+        )
+        
+        networking_v1 = client.NetworkingV1Api()
+        networking_v1.create_namespaced_ingress(namespace="default", body=ingress)
+        logger.info(f"✅ Ingress created: user-{session_uuid}")
         
         # Create KEDA ScaledObject for this user
         scaledobject = {
@@ -336,8 +373,8 @@ def create_session():
         elapsed = time.time() - start_time
         logger.info(f"🎉 Session created successfully in {elapsed:.2f}s: {session_uuid}")
         
-        # Construct workspace URL for client
-        workspace_url = f"vs-code-{session_uuid}.example.com"
+        # Construct workspace URL with subdomain
+        workspace_url = f"https://vs-code-{session_uuid}.preview.hyperbola.in"
         
         return jsonify({
             'uuid': session_uuid,
@@ -523,6 +560,19 @@ def delete_session(session_uuid):
             if e.status != 404:
                 raise
             logger.warning(f"Service not found: user-{session_uuid}")
+        
+        # Delete Ingress
+        try:
+            networking_v1 = client.NetworkingV1Api()
+            networking_v1.delete_namespaced_ingress(
+                name=f"user-{session_uuid}",
+                namespace="default"
+            )
+            logger.info(f"✅ Ingress deleted: user-{session_uuid}")
+        except ApiException as e:
+            if e.status != 404:
+                raise
+            logger.warning(f"Ingress not found: user-{session_uuid}")
         
         # Delete KEDA ScaledObject
         try:
