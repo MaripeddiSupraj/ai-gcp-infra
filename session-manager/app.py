@@ -29,6 +29,7 @@ REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
 SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
+API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
 
 # Load k8s config
 try:
@@ -67,6 +68,28 @@ try:
 except Exception as e:
     logger.error(f"Redis initialization failed: {str(e)}")
     r = None
+
+
+# ============================================================================
+# AUTHENTICATION & AUTHORIZATION
+# ============================================================================
+
+def require_api_key(f):
+    """API key authentication decorator"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key') or request.headers.get('Authorization', '').replace('Bearer ', '')
+        
+        if not api_key:
+            logger.warning(f"⚠️ Missing API key from {request.remote_addr}")
+            return {'error': 'API key required', 'message': 'Include X-API-Key header'}, 401
+        
+        if api_key != API_KEY:
+            logger.warning(f"⚠️ Invalid API key from {request.remote_addr}")
+            return {'error': 'Invalid API key'}, 403
+        
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 # ============================================================================
@@ -162,6 +185,7 @@ def set_session_ttl(session_uuid):
             logger.warning(f"Failed to set TTL for {session_uuid}: {str(e)}")
 
 @app.route('/session/create', methods=['POST'])
+@require_api_key
 @handle_errors
 @rate_limit(max_requests=100, window=60)
 def create_session():
@@ -323,6 +347,7 @@ def create_session():
         raise
 
 @app.route('/session/<session_uuid>/wake', methods=['POST'])
+@require_api_key
 @handle_errors
 @rate_limit(max_requests=50, window=60)
 def wake_session(session_uuid):
@@ -346,6 +371,7 @@ def wake_session(session_uuid):
     }), 200
 
 @app.route('/session/<session_uuid>/status')
+@require_api_key
 @handle_errors
 @rate_limit(max_requests=200, window=60)
 def session_status(session_uuid):
@@ -377,6 +403,7 @@ def session_status(session_uuid):
 # ============================================================================
 
 @app.route('/session/<session_uuid>/chat', methods=['POST'])
+@require_api_key
 @handle_errors
 @rate_limit(max_requests=100, window=60)
 def chat_message(session_uuid):
@@ -449,6 +476,7 @@ def chat_message(session_uuid):
 # ============================================================================
 
 @app.route('/session/<session_uuid>', methods=['DELETE'])
+@require_api_key
 @handle_errors
 @rate_limit(max_requests=50, window=60)
 def delete_session(session_uuid):
@@ -546,6 +574,7 @@ def delete_session(session_uuid):
 # ============================================================================
 
 @app.route('/session/<session_uuid>/sleep', methods=['POST'])
+@require_api_key
 @handle_errors
 @rate_limit(max_requests=50, window=60)
 def sleep_session(session_uuid):
@@ -630,6 +659,7 @@ def get_metrics():
 
 
 @app.route('/sessions')
+@require_api_key
 @handle_errors
 def list_sessions():
     """List all active sessions (for admin/monitoring)"""

@@ -17,7 +17,7 @@ rules:
   resources: ["services"]
   verbs: ["create", "get", "list", "delete"]
 - apiGroups: ["keda.sh"]
-  resources: ["scaledobjects"]
+  resources: ["scaledobjects", "triggerauthentications"]
   verbs: ["create", "get", "list", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -91,6 +91,11 @@ spec:
           value: "1111"
         - name: LOG_LEVEL
           value: "INFO"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-credentials
+              key: api-key
         resources:
           requests:
             memory: "256Mi"
