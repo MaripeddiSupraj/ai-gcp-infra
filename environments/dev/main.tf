@@ -1,5 +1,6 @@
 # Dev environment configuration
 # Deploying infrastructure
+# Test: Trigger Terraform workflow
 terraform {
   required_version = ">= 1.0"
   required_providers {
