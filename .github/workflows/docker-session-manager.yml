@@ -36,3 +36,20 @@ jobs:
           cd session-manager
           docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest .
           docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Get GKE credentials
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+          gcloud container clusters get-credentials primary-cluster-v2 \
+            --region us-central1 \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Restart Deployment
+        run: |
+          kubectl rollout restart deployment/session-manager
+          kubectl rollout status deployment/session-manager --timeout=5m
+
+      - name: Verify Deployment
+        run: |
+          kubectl get pods -l app=session-manager
+          kubectl get svc session-manager

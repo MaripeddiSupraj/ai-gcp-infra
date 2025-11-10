@@ -1,0 +1,57 @@
+name: "🚀 Deploy to GKE"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'k8s-manifests/**'
+  workflow_dispatch:
+
+env:
+  GKE_CLUSTER: primary-cluster-v2
+  GKE_REGION: us-central1
+  PROJECT_ID: hyperbola-476507
+
+jobs:
+  deploy:
+    name: "Deploy K8s Manifests"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --region ${{ env.GKE_REGION }} \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Apply K8s Manifests
+        run: |
+          kubectl apply -f k8s-manifests/redis-secret.yaml
+          kubectl apply -f k8s-manifests/api-secret.yaml
+          kubectl apply -f k8s-manifests/redis.yaml
+          kubectl apply -f k8s-manifests/session-manager.yaml
+          
+      - name: Wait for Rollout
+        run: |
+          kubectl rollout status deployment/session-manager --timeout=5m
+          kubectl rollout status deployment/redis --timeout=2m
+
+      - name: Verify Deployment
+        run: |
+          kubectl get pods -l app=session-manager
+          kubectl get pods -l app=redis
+          kubectl get svc session-manager
