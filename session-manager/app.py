@@ -23,7 +23,8 @@ app = Flask(__name__)
 
 # Configuration
 REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
-REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+REDIS_PORT_STR = os.getenv('REDIS_PORT', '6379')
+REDIS_PORT = int(REDIS_PORT_STR.split(':')[-1]) if 'tcp://' in REDIS_PORT_STR else int(REDIS_PORT_STR)
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
 SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
