@@ -13,6 +13,10 @@ on:
         description: 'Push image to registry'
         type: boolean
         default: false
+      repository_name:
+        description: 'Artifact Registry repository name (optional, defaults to secret/env)'
+        type: string
+        required: false
 
 concurrency:
   group: docker-${{ github.ref_name }}
@@ -21,6 +25,10 @@ concurrency:
 env:
   REGISTRY: us-central1-docker.pkg.dev
   PROJECT_ID: hyperbola-476507
+  # Repository name can be overridden via:
+  # 1. Workflow dispatch input (repository_name)
+  # 2. Repository secret (GOOGLE_ARTIFACT_REGISTRY_REPO)
+  # 3. Default value below
   REPOSITORY: docker-repo
   IMAGE_NAME: ai-environment
 
@@ -49,6 +57,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Determine repository name from inputs, secrets, or default
+      - name: Set repository name
+        id: repo
+        run: |
+          REPO_NAME="${{ inputs.repository_name }}"
+          if [ -z "$REPO_NAME" ]; then
+            REPO_NAME="${{ secrets.GOOGLE_ARTIFACT_REGISTRY_REPO }}"
+          fi
+          if [ -z "$REPO_NAME" ]; then
+            REPO_NAME="${{ env.REPOSITORY }}"
+          fi
+          echo "name=${REPO_NAME}" >> $GITHUB_OUTPUT
+          echo "Using Artifact Registry repository: ${REPO_NAME}"
+
       - name: Set up QEMU (multi-arch)
         uses: docker/setup-qemu-action@v2
 
@@ -63,10 +85,42 @@ jobs:
       - name: Configure Docker for GAR
         run: gcloud auth configure-docker ${{ env.REGISTRY }}
 
+      # Validate that the Artifact Registry repository exists
+      - name: Validate Artifact Registry repository
+        run: |
+          echo "Validating repository: ${{ steps.repo.outputs.name }}"
+          # Extract location from REGISTRY (us-central1 from us-central1-docker.pkg.dev)
+          LOCATION=$(echo "${{ env.REGISTRY }}" | cut -d'-' -f1-2)
+          if ! gcloud artifacts repositories describe "${{ steps.repo.outputs.name }}" \
+               --location="${LOCATION}" \
+               --project="${{ env.PROJECT_ID }}" \
+               --format="value(name)" 2>/dev/null; then
+            echo "::error::❌ Artifact Registry repository '${{ steps.repo.outputs.name }}' not found!"
+            echo ""
+            echo "To fix this issue:"
+            echo "1. Create the repository using:"
+            echo "   gcloud artifacts repositories create ${{ steps.repo.outputs.name }} \\"
+            echo "     --repository-format=docker \\"
+            echo "     --location=${LOCATION} \\"
+            echo "     --project=${{ env.PROJECT_ID }}"
+            echo ""
+            echo "2. Grant the service account access:"
+            echo "   gcloud artifacts repositories add-iam-policy-binding ${{ steps.repo.outputs.name }} \\"
+            echo "     --location=${LOCATION} \\"
+            echo "     --member='serviceAccount:YOUR_SA_EMAIL' \\"
+            echo "     --role='roles/artifactregistry.writer'"
+            echo ""
+            echo "3. Or update the repository name:"
+            echo "   - Set GOOGLE_ARTIFACT_REGISTRY_REPO secret in repository settings"
+            echo "   - Or provide repository_name in workflow_dispatch"
+            exit 1
+          fi
+          echo "✅ Repository '${{ steps.repo.outputs.name }}' exists and is accessible"
+
       - name: Set metadata
         id: meta
         run: |
-          IMAGE_BASE="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}"
+          IMAGE_BASE="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ steps.repo.outputs.name }}/${{ env.IMAGE_NAME }}"
           SHORT_SHA="${GITHUB_SHA::7}"
           TAGS="${IMAGE_BASE}:${SHORT_SHA}"
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
@@ -113,4 +167,26 @@ jobs:
 # - Protect the production environment in repo settings if you want manual gates.
 # - If you want image signing, promotion pipelines, SBOMs, or stricter blocking policies,
 #   we can add them later as small incremental steps.
+#
+# Configuration Requirements:
+# 1. Create Artifact Registry repository:
+#    gcloud artifacts repositories create <repo-name> \
+#      --repository-format=docker \
+#      --location=us-central1 \
+#      --project=<project-id>
+#
+# 2. Set required secrets in GitHub repository settings:
+#    - GCP_SA_KEY: Service account JSON key with Artifact Registry Writer role
+#    - GOOGLE_ARTIFACT_REGISTRY_REPO (optional): Override default repository name
+#
+# 3. Grant service account permissions:
+#    gcloud artifacts repositories add-iam-policy-binding <repo-name> \
+#      --location=us-central1 \
+#      --member='serviceAccount:<sa-email>' \
+#      --role='roles/artifactregistry.writer'
+#
+# 4. Repository name priority (first found wins):
+#    a) workflow_dispatch input 'repository_name'
+#    b) Repository secret 'GOOGLE_ARTIFACT_REGISTRY_REPO'
+#    c) Default value in env.REPOSITORY
 

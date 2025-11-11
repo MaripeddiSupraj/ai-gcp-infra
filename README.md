@@ -142,6 +142,50 @@ Triggers on changes to `app/**`:
 - Scans for vulnerabilities (Trivy)
 - Pushes to Artifact Registry
 
+#### Docker Workflow Configuration
+
+Before running the Docker workflow, you need to:
+
+1. **Create the Artifact Registry repository**:
+   ```bash
+   gcloud artifacts repositories create docker-repo \
+     --repository-format=docker \
+     --location=us-central1 \
+     --project=YOUR_PROJECT_ID \
+     --description="Docker images for AI environment"
+   ```
+
+2. **Create a service account with Artifact Registry access**:
+   ```bash
+   # Create service account
+   gcloud iam service-accounts create github-actions \
+     --display-name="GitHub Actions" \
+     --project=YOUR_PROJECT_ID
+
+   # Grant Artifact Registry Writer role
+   gcloud artifacts repositories add-iam-policy-binding docker-repo \
+     --location=us-central1 \
+     --member="serviceAccount:github-actions@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/artifactregistry.writer"
+
+   # Create and download key
+   gcloud iam service-accounts keys create key.json \
+     --iam-account=github-actions@YOUR_PROJECT_ID.iam.gserviceaccount.com
+   ```
+
+3. **Configure GitHub repository secrets**:
+   - Go to your repository → Settings → Secrets and variables → Actions
+   - Add the following secrets:
+     - `GCP_SA_KEY`: Content of the `key.json` file (required)
+     - `GOOGLE_ARTIFACT_REGISTRY_REPO`: Repository name to override default (optional)
+
+4. **Repository name configuration** (priority order):
+   - Workflow dispatch input `repository_name` (highest priority)
+   - Repository secret `GOOGLE_ARTIFACT_REGISTRY_REPO`
+   - Default value `docker-repo` in workflow file (lowest priority)
+
+**Note**: The workflow includes validation to ensure the repository exists and provides helpful error messages if it doesn't.
+
 ### Terraform Workflow
 - **On Pull Request**: Runs `terraform plan`
 - **On Main Push**: Runs `terraform apply` (requires approval)
