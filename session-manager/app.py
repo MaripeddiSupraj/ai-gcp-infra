@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '2.5.0'  # Fix KEDA - use TriggerAuthentication like working session
+VERSION = '2.5.1'  # Fix KEDA - add passwordFromEnv to metadata
 
 # Load k8s config
 try:
@@ -340,7 +340,8 @@ def create_session():
                         "address": "redis.default.svc.cluster.local:6379",
                         "listName": f"queue:{session_uuid}",
                         "listLength": "1",
-                        "activationListLength": "1"
+                        "activationListLength": "1",
+                        "passwordFromEnv": "REDIS_PASSWORD"
                     },
                     "authenticationRef": {
                         "name": f"redis-auth-{session_uuid}"
