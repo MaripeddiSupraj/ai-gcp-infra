@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '2.3.1'  # Fix KEDA Redis address format
+VERSION = '2.4.0'  # Fix KEDA Redis - use host/port/password separately
 
 # Load k8s config
 try:
@@ -299,7 +299,7 @@ def create_session():
         networking_v1.create_namespaced_ingress(namespace="default", body=ingress)
         logger.info(f"✅ Ingress created: user-{session_uuid}")
         
-        # Create KEDA ScaledObject for this user with password in address
+        # Create KEDA ScaledObject for this user
         scaledobject = {
             "apiVersion": "keda.sh/v1alpha1",
             "kind": "ScaledObject",
@@ -314,7 +314,9 @@ def create_session():
                 "triggers": [{
                     "type": "redis",
                     "metadata": {
-                        "address": f":{REDIS_PASSWORD}@redis.default.svc.cluster.local:6379",
+                        "host": "redis.default.svc.cluster.local",
+                        "port": "6379",
+                        "password": REDIS_PASSWORD,
                         "listName": f"queue:{session_uuid}",
                         "listLength": "1",
                         "activationListLength": "1"
