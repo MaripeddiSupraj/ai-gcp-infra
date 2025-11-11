@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '2.5.5'  # Fix KEDA - use address + passwordFromEnv like working session
+VERSION = '2.6.0'  # Fix KEDA - use ONLY TriggerAuthentication, remove passwordFromEnv
 
 # Load k8s config
 try:
@@ -235,16 +235,7 @@ def create_session():
                                 ),
                                 env=[
                                     client.V1EnvVar(name="SESSION_UUID", value=session_uuid),
-                                    client.V1EnvVar(name="USER_ID", value=user_id),
-                                    client.V1EnvVar(
-                                        name="REDIS_PASSWORD",
-                                        value_from=client.V1EnvVarSource(
-                                            secret_key_ref=client.V1SecretKeySelector(
-                                                name="redis-credentials",
-                                                key="password"
-                                            )
-                                        )
-                                    )
+                                    client.V1EnvVar(name="USER_ID", value=user_id)
                                 ]
                             )
                         ]
@@ -349,8 +340,7 @@ def create_session():
                         "address": "redis.default.svc.cluster.local:6379",
                         "listName": f"queue:{session_uuid}",
                         "listLength": "1",
-                        "activationListLength": "1",
-                        "passwordFromEnv": "REDIS_PASSWORD"
+                        "activationListLength": "1"
                     },
                     "authenticationRef": {
                         "name": f"redis-auth-{session_uuid}"
