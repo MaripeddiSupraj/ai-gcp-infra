@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '2.3.0'  # Fix KEDA Redis auth - password in address
+VERSION = '2.3.1'  # Fix KEDA Redis address format
 
 # Load k8s config
 try:
@@ -314,7 +314,7 @@ def create_session():
                 "triggers": [{
                     "type": "redis",
                     "metadata": {
-                        "address": f"redis://:{REDIS_PASSWORD}@redis.default.svc.cluster.local:6379",
+                        "address": f":{REDIS_PASSWORD}@redis.default.svc.cluster.local:6379",
                         "listName": f"queue:{session_uuid}",
                         "listLength": "1",
                         "activationListLength": "1"
