@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '2.7.0'  # Use shared TriggerAuthentication for all sessions
+VERSION = '2.8.0'  # Manual scale to 1, KEDA handles scale to 0
 
 # Load k8s config
 try:
@@ -439,8 +439,23 @@ def chat_message(session_uuid):
     logger.info(f"💬 Chat message for {session_uuid}: {message[:50]}...")
     
     try:
-        # Push message to user's queue (this wakes the pod via KEDA)
+        # Push message to user's queue
         r.lpush(f'queue:{session_uuid}', 'chat')
+        
+        # WORKAROUND: Manually scale to 1 since KEDA 0→1 scaling doesn't work with auth
+        # KEDA will handle 1→0 scaling after cooldown period
+        try:
+            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+            if deployment.spec.replicas == 0:
+                deployment.spec.replicas = 1
+                v1.patch_namespaced_deployment(
+                    name=f"user-{session_uuid}",
+                    namespace="default",
+                    body=deployment
+                )
+                logger.info(f"⚡ Manually scaled deployment to 1: user-{session_uuid}")
+        except ApiException as e:
+            logger.warning(f"Failed to scale deployment: {str(e)}")
         
         # Store chat message in session queue with timestamp
         chat_record = {
