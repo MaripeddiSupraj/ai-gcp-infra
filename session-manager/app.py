@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '2.6.1'  # Fix KEDA - use host/port fields with TriggerAuthentication
+VERSION = '2.7.0'  # Use shared TriggerAuthentication for all sessions
 
 # Load k8s config
 try:
@@ -299,30 +299,7 @@ def create_session():
         networking_v1.create_namespaced_ingress(namespace="default", body=ingress)
         logger.info(f"✅ Ingress created: user-{session_uuid}")
         
-        # Create TriggerAuthentication for Redis password
-        trigger_auth = {
-            "apiVersion": "keda.sh/v1alpha1",
-            "kind": "TriggerAuthentication",
-            "metadata": {"name": f"redis-auth-{session_uuid}"},
-            "spec": {
-                "secretTargetRef": [{
-                    "parameter": "password",
-                    "name": "redis-credentials",
-                    "key": "password"
-                }]
-            }
-        }
-        
-        custom_api.create_namespaced_custom_object(
-            group="keda.sh",
-            version="v1alpha1",
-            namespace="default",
-            plural="triggerauthentications",
-            body=trigger_auth
-        )
-        logger.info(f"✅ KEDA TriggerAuthentication created: redis-auth-{session_uuid}")
-        
-        # Create KEDA ScaledObject for this user
+        # Create KEDA ScaledObject for this user (using shared TriggerAuthentication)
         scaledobject = {
             "apiVersion": "keda.sh/v1alpha1",
             "kind": "ScaledObject",
@@ -344,7 +321,7 @@ def create_session():
                         "activationListLength": "1"
                     },
                     "authenticationRef": {
-                        "name": f"redis-auth-{session_uuid}"
+                        "name": "redis-shared-auth"
                     }
                 }]
             }
@@ -589,22 +566,7 @@ def delete_session(session_uuid):
                 raise
             logger.warning(f"KEDA ScaledObject not found: user-{session_uuid}-scaler")
         
-        # Delete KEDA TriggerAuthentication
-        try:
-            custom_api.delete_namespaced_custom_object(
-                group="keda.sh",
-                version="v1alpha1",
-                namespace="default",
-                plural="triggerauthentications",
-                name=f"redis-auth-{session_uuid}"
-            )
-            logger.info(f"✅ KEDA TriggerAuthentication deleted: redis-auth-{session_uuid}")
-        except ApiException as e:
-            if e.status != 404:
-                raise
-            logger.warning(f"KEDA TriggerAuthentication not found: redis-auth-{session_uuid}")
-        
-        # Clean up Redis data
+        # Clean up Redis data (TriggerAuthentication is shared, don't delete)
         r.delete(f'session:{session_uuid}')
         r.delete(f'queue:{session_uuid}')
         r.delete(f'chat:{session_uuid}')
