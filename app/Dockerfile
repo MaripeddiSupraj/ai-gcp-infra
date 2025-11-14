@@ -1,5 +1,5 @@
 # Build stage for Python dependencies
-FROM ubuntu:22.04 AS python-builder
+FROM ubuntu:24.04 AS python-builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -16,7 +16,7 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir --user -r requirements.txt
 
 # Build stage for Node/Yarn
-FROM ubuntu:22.04 AS node-builder
+FROM ubuntu:24.04 AS node-builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g yarn
 
 # Build stage for VSCode Server
-FROM ubuntu:22.04 AS vscode-builder
+FROM ubuntu:24.04 AS vscode-builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://code-server.dev/install.sh | sh
 
 # Final runtime stage
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
