@@ -16,10 +16,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps", "endpoints", "nodes", "pods", "secrets", "namespaces"]
-    verbs: ["list", "watch"]
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch"]
@@ -34,6 +31,12 @@ rules:
     verbs: ["update"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
