@@ -240,7 +240,7 @@ def create_session():
                                 volumeMounts=[
                                     client.V1VolumeMount(
                                         name="user-data",
-                                        mountPath="/workspace"
+                                        mount_path="/workspace"
                                     )
                                 ]
                             )
@@ -571,12 +571,12 @@ def delete_session(session_uuid):
                                     volumeMounts=[
                                         client.V1VolumeMount(
                                             name="user-data",
-                                            mountPath="/workspace",
-                                            readOnly=True
+                                            mount_path="/workspace",
+                                            read_only=True
                                         ),
                                         client.V1VolumeMount(
                                             name="backup-storage",
-                                            mountPath="/backup"
+                                            mount_path="/backup"
                                         )
                                     ]
                                 )
