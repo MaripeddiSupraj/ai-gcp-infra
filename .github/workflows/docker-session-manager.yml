@@ -34,8 +34,12 @@ jobs:
       - name: Build and Push
         run: |
           cd session-manager
-          docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest .
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA} \
+                       -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest .
+          docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}
           docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+          echo "IMAGE_TAG=${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: Get GKE credentials
         run: |
@@ -44,9 +48,10 @@ jobs:
             --region us-central1 \
             --project ${{ env.PROJECT_ID }}
 
-      - name: Restart Deployment
+      - name: Update Deployment Image
         run: |
-          kubectl rollout restart deployment/session-manager
+          kubectl set image deployment/session-manager \
+            session-manager=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
           kubectl rollout status deployment/session-manager --timeout=5m
 
       - name: Verify Deployment
