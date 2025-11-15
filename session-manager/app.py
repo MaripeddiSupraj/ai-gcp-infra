@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '2.9.0'  # Remove KEDA - manual scale up/down only
+VERSION = '3.0.0'  # Pod starts immediately, scale APIs, PVC backup
 
 # Load k8s config
 try:
@@ -215,7 +215,7 @@ def create_session():
                 labels={"session-uuid": session_uuid, "user-id": user_id_label}
             ),
             spec=client.V1DeploymentSpec(
-                replicas=0,
+                replicas=1,  # Start pod immediately
                 selector=client.V1LabelSelector(
                     match_labels={"app": f"user-{session_uuid}"}
                 ),
@@ -230,8 +230,8 @@ def create_session():
                                 image=USER_POD_IMAGE,
                                 ports=[client.V1ContainerPort(container_port=USER_POD_PORT)],
                                 resources=client.V1ResourceRequirements(
-                                    requests={"memory": "256Mi", "cpu": "250m"},
-                                    limits={"memory": "512Mi", "cpu": "500m"}
+                                    requests={"memory": "512Mi", "cpu": "500m"},
+                                    limits={"memory": "1Gi", "cpu": "1000m"}
                                 ),
                                 env=[
                                     client.V1EnvVar(name="SESSION_UUID", value=session_uuid),
@@ -338,24 +338,38 @@ def create_session():
 @handle_errors
 @rate_limit(max_requests=50, window=60)
 def wake_session(session_uuid):
-    """Wake up sleeping pod by pushing to Redis queue"""
+    """Wake up sleeping pod"""
     if not r:
         return {'error': 'Redis unavailable'}, 503
     
     session_data = check_session_exists(session_uuid)
     
-    r.lpush(f'queue:{session_uuid}', 'wake')
-    r.hset(f'session:{session_uuid}', 'last_activity', datetime.utcnow().isoformat())
-    set_session_ttl(session_uuid)
-    
-    log_event(session_uuid, 'session_woken', {'user_id': session_data.get('user_id')})
-    logger.info(f"⏰ Session woken: {session_uuid}")
-    
-    return jsonify({
-        'uuid': session_uuid,
-        'action': 'wake',
-        'status': 'queued'
-    }), 200
+    try:
+        # Scale deployment to 1
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        if deployment.spec.replicas == 0:
+            deployment.spec.replicas = 1
+            v1.patch_namespaced_deployment(
+                name=f"user-{session_uuid}",
+                namespace="default",
+                body=deployment
+            )
+            logger.info(f"⏰ Waking up session: {session_uuid}")
+        
+        r.hset(f'session:{session_uuid}', 'last_activity', datetime.utcnow().isoformat())
+        r.hset(f'session:{session_uuid}', 'status', 'running')
+        set_session_ttl(session_uuid)
+        
+        log_event(session_uuid, 'session_woken', {'user_id': session_data.get('user_id')})
+        
+        return jsonify({
+            'uuid': session_uuid,
+            'action': 'wake',
+            'status': 'waking'
+        }), 200
+    except Exception as e:
+        logger.error(f"❌ Failed to wake session: {str(e)}", exc_info=True)
+        raise
 
 @app.route('/session/<session_uuid>/status')
 @require_api_key
@@ -570,6 +584,64 @@ def delete_session(session_uuid):
 
 
 # ============================================================================
+# SCALE RESOURCES - Scale pod CPU/memory up or down
+# ============================================================================
+
+@app.route('/session/<session_uuid>/scale', methods=['POST'])
+@require_api_key
+@handle_errors
+@rate_limit(max_requests=50, window=60)
+def scale_session(session_uuid):
+    """Scale pod resources up or down"""
+    if not r:
+        return {'error': 'Redis unavailable'}, 503
+    
+    session_data = check_session_exists(session_uuid)
+    
+    scale_type = request.json.get('scale', 'up')  # 'up' or 'down'
+    
+    if scale_type not in ['up', 'down']:
+        raise ValueError("scale must be 'up' or 'down'")
+    
+    try:
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        
+        if scale_type == 'up':
+            # Scale up: 1Gi RAM, 1 CPU
+            deployment.spec.template.spec.containers[0].resources = client.V1ResourceRequirements(
+                requests={"memory": "1Gi", "cpu": "1000m"},
+                limits={"memory": "2Gi", "cpu": "2000m"}
+            )
+            logger.info(f"⬆️ Scaling up: {session_uuid}")
+        else:
+            # Scale down: 512Mi RAM, 0.5 CPU
+            deployment.spec.template.spec.containers[0].resources = client.V1ResourceRequirements(
+                requests={"memory": "512Mi", "cpu": "500m"},
+                limits={"memory": "1Gi", "cpu": "1000m"}
+            )
+            logger.info(f"⬇️ Scaling down: {session_uuid}")
+        
+        v1.patch_namespaced_deployment(
+            name=f"user-{session_uuid}",
+            namespace="default",
+            body=deployment
+        )
+        
+        log_event(session_uuid, f'scaled_{scale_type}', {'user_id': session_data.get('user_id')})
+        
+        return jsonify({
+            'uuid': session_uuid,
+            'action': f'scale_{scale_type}',
+            'status': 'success',
+            'message': f'Pod scaled {scale_type}'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to scale session: {str(e)}", exc_info=True)
+        raise
+
+
+# ============================================================================
 # PRIORITY 2: SLEEP ENDPOINT - Manual pod sleep
 # ============================================================================
 
@@ -585,10 +657,18 @@ def sleep_session(session_uuid):
     session_data = check_session_exists(session_uuid)
     
     try:
-        # Clear the queue to let KEDA scale to zero
+        # Clear the queue
         r.delete(f'queue:{session_uuid}')
         
-        # Scale to zero immediately via KEDA
+        # Scale deployment to 0
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment.spec.replicas = 0
+        v1.patch_namespaced_deployment(
+            name=f"user-{session_uuid}",
+            namespace="default",
+            body=deployment
+        )
+        
         logger.info(f"😴 Putting session to sleep: {session_uuid}")
         
         # Update session status
