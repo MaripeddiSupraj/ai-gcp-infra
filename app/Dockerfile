@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir --user -r requirements.txt
+RUN pip3 install --no-cache-dir --user --break-system-packages -r requirements.txt
 
 # Build stage for Node/Yarn
 FROM ubuntu:24.04 AS node-builder
