@@ -237,7 +237,7 @@ def create_session():
                                     client.V1EnvVar(name="SESSION_UUID", value=session_uuid),
                                     client.V1EnvVar(name="USER_ID", value=user_id)
                                 ],
-                                volumeMounts=[
+                                volume_mounts=[
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/workspace"
@@ -248,7 +248,7 @@ def create_session():
                         volumes=[
                             client.V1Volume(
                                 name="user-data",
-                                persistentVolumeClaim=client.V1PersistentVolumeClaimVolumeSource(
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
                                     claim_name=f"pvc-{session_uuid}"
                                 )
                             )
@@ -568,7 +568,7 @@ def delete_session(session_uuid):
                                         f"ls -lh /backup/ && "
                                         f"echo 'Backup completed for {session_uuid}'"
                                     ],
-                                    volumeMounts=[
+                                    volume_mounts=[
                                         client.V1VolumeMount(
                                             name="user-data",
                                             mount_path="/workspace",
@@ -584,13 +584,13 @@ def delete_session(session_uuid):
                             volumes=[
                                 client.V1Volume(
                                     name="user-data",
-                                    persistentVolumeClaim=client.V1PersistentVolumeClaimVolumeSource(
+                                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
                                         claim_name=f"pvc-{session_uuid}"
                                     )
                                 ),
                                 client.V1Volume(
                                     name="backup-storage",
-                                    persistentVolumeClaim=client.V1PersistentVolumeClaimVolumeSource(
+                                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
                                         claim_name="backup-pvc"  # Shared backup storage
                                     )
                                 )
