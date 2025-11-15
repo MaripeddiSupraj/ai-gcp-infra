@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '3.0.0'  # Pod starts immediately, scale APIs, PVC backup
+VERSION = '3.1.0'  # PVC backup before delete, persistent storage
 
 # Load k8s config
 try:
@@ -236,13 +236,44 @@ def create_session():
                                 env=[
                                     client.V1EnvVar(name="SESSION_UUID", value=session_uuid),
                                     client.V1EnvVar(name="USER_ID", value=user_id)
+                                ],
+                                volumeMounts=[
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mountPath="/workspace"
+                                    )
                                 ]
+                            )
+                        ],
+                        volumes=[
+                            client.V1Volume(
+                                name="user-data",
+                                persistentVolumeClaim=client.V1PersistentVolumeClaimVolumeSource(
+                                    claim_name=f"pvc-{session_uuid}"
+                                )
                             )
                         ]
                     )
                 )
             )
         )
+        
+        # Create PVC for user data
+        pvc = client.V1PersistentVolumeClaim(
+            metadata=client.V1ObjectMeta(
+                name=f"pvc-{session_uuid}",
+                labels={"session-uuid": session_uuid}
+            ),
+            spec=client.V1PersistentVolumeClaimSpec(
+                access_modes=["ReadWriteOnce"],
+                resources=client.V1ResourceRequirements(
+                    requests={"storage": "5Gi"}
+                )
+            )
+        )
+        
+        core_v1.create_namespaced_persistent_volume_claim(namespace="default", body=pvc)
+        logger.info(f"✅ PVC created: pvc-{session_uuid}")
         
         v1.create_namespaced_deployment(namespace="default", body=deployment)
         logger.info(f"✅ Deployment created: user-{session_uuid}")
@@ -510,6 +541,87 @@ def delete_session(session_uuid):
     logger.info(f"🗑️ Deleting session: {session_uuid}")
     
     try:
+        # Backup PVC data before deletion
+        try:
+            logger.info(f"💾 Starting PVC backup for: {session_uuid}")
+            
+            # Create backup job to zip and upload data
+            backup_job = client.V1Job(
+                metadata=client.V1ObjectMeta(
+                    name=f"backup-{session_uuid}",
+                    labels={"session-uuid": session_uuid, "job-type": "backup"}
+                ),
+                spec=client.V1JobSpec(
+                    ttl_seconds_after_finished=300,  # Auto-delete after 5 min
+                    template=client.V1PodTemplateSpec(
+                        spec=client.V1PodSpec(
+                            restart_policy="Never",
+                            containers=[
+                                client.V1Container(
+                                    name="backup",
+                                    image="alpine:latest",
+                                    command=["/bin/sh", "-c"],
+                                    args=[
+                                        f"apk add --no-cache zip && "
+                                        f"cd /workspace && "
+                                        f"zip -r /backup/workspace-{session_uuid}-$(date +%Y%m%d-%H%M%S).zip . && "
+                                        f"ls -lh /backup/ && "
+                                        f"echo 'Backup completed for {session_uuid}'"
+                                    ],
+                                    volumeMounts=[
+                                        client.V1VolumeMount(
+                                            name="user-data",
+                                            mountPath="/workspace",
+                                            readOnly=True
+                                        ),
+                                        client.V1VolumeMount(
+                                            name="backup-storage",
+                                            mountPath="/backup"
+                                        )
+                                    ]
+                                )
+                            ],
+                            volumes=[
+                                client.V1Volume(
+                                    name="user-data",
+                                    persistentVolumeClaim=client.V1PersistentVolumeClaimVolumeSource(
+                                        claim_name=f"pvc-{session_uuid}"
+                                    )
+                                ),
+                                client.V1Volume(
+                                    name="backup-storage",
+                                    persistentVolumeClaim=client.V1PersistentVolumeClaimVolumeSource(
+                                        claim_name="backup-pvc"  # Shared backup storage
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                )
+            )
+            
+            batch_v1 = client.BatchV1Api()
+            batch_v1.create_namespaced_job(namespace="default", body=backup_job)
+            logger.info(f"✅ Backup job created: backup-{session_uuid}")
+            
+            # Wait for backup to complete (max 60 seconds)
+            import time
+            for i in range(12):  # 12 * 5 = 60 seconds
+                time.sleep(5)
+                try:
+                    job = batch_v1.read_namespaced_job(name=f"backup-{session_uuid}", namespace="default")
+                    if job.status.succeeded:
+                        logger.info(f"✅ Backup completed: {session_uuid}")
+                        break
+                    elif job.status.failed:
+                        logger.warning(f"⚠️ Backup failed: {session_uuid}")
+                        break
+                except:
+                    pass
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Backup failed (continuing with deletion): {str(e)}")
+        
         # Delete deployment
         try:
             v1.delete_namespaced_deployment(
@@ -562,6 +674,18 @@ def delete_session(session_uuid):
             if e.status != 404:
                 raise
             logger.warning(f"KEDA ScaledObject not found: user-{session_uuid}-scaler")
+        
+        # Delete PVC
+        try:
+            core_v1.delete_namespaced_persistent_volume_claim(
+                name=f"pvc-{session_uuid}",
+                namespace="default"
+            )
+            logger.info(f"✅ PVC deleted: pvc-{session_uuid}")
+        except ApiException as e:
+            if e.status != 404:
+                raise
+            logger.warning(f"PVC not found: pvc-{session_uuid}")
         
         # Clean up Redis data (TriggerAuthentication is shared, don't delete)
         r.delete(f'session:{session_uuid}')
