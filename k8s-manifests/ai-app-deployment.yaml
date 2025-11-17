@@ -28,6 +28,15 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        - name: user-data
+          mountPath: /persistent
+        - name: workspace-data
+          mountPath: /workspace
+        - name: home-data
+          mountPath: /home/user
         livenessProbe:
           httpGet:
             path: /health
@@ -40,6 +49,19 @@ spec:
             port: 8001
           initialDelaySeconds: 5
           periodSeconds: 5
+      volumes:
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: mongodb-pvc
+      - name: user-data
+        persistentVolumeClaim:
+          claimName: user-data-pvc
+      - name: workspace-data
+        persistentVolumeClaim:
+          claimName: workspace-pvc
+      - name: home-data
+        persistentVolumeClaim:
+          claimName: home-pvc
 ---
 apiVersion: v1
 kind: Service
