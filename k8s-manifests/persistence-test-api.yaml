@@ -1,0 +1,201 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: persistence-test-api
+data:
+  app.py: |
+    from flask import Flask, request, jsonify
+    import os
+    import subprocess
+    import json
+    from datetime import datetime
+    
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def home():
+        return '''
+        <h1>Data Persistence Test</h1>
+        <button onclick="testWorkspace()">Test Workspace Persistence</button>
+        <button onclick="testHome()">Test Home Persistence</button>
+        <button onclick="testInstall()">Test Package Install</button>
+        <button onclick="checkAll()">Check All Data</button>
+        <button onclick="restartPod()">Restart Pod</button>
+        <pre id="output"></pre>
+        <script>
+        function testWorkspace() {
+            fetch('/test-workspace').then(r => r.json()).then(d => {
+                document.getElementById('output').innerText = JSON.stringify(d, null, 2);
+            });
+        }
+        function testHome() {
+            fetch('/test-home').then(r => r.json()).then(d => {
+                document.getElementById('output').innerText = JSON.stringify(d, null, 2);
+            });
+        }
+        function testInstall() {
+            fetch('/test-install').then(r => r.json()).then(d => {
+                document.getElementById('output').innerText = JSON.stringify(d, null, 2);
+            });
+        }
+        function checkAll() {
+            fetch('/check-all').then(r => r.json()).then(d => {
+                document.getElementById('output').innerText = JSON.stringify(d, null, 2);
+            });
+        }
+        function restartPod() {
+            fetch('/restart-pod').then(r => r.json()).then(d => {
+                document.getElementById('output').innerText = JSON.stringify(d, null, 2);
+            });
+        }
+        </script>
+        '''
+    
+    @app.route('/test-workspace')
+    def test_workspace():
+        timestamp = datetime.now().isoformat()
+        test_file = f"/workspace/test-{timestamp}.txt"
+        test_content = f"Workspace test created at {timestamp}"
+        
+        try:
+            with open(test_file, 'w') as f:
+                f.write(test_content)
+            
+            files = os.listdir('/workspace')
+            return {
+                'action': 'workspace_test',
+                'file_created': test_file,
+                'content': test_content,
+                'workspace_files': files,
+                'status': 'success'
+            }
+        except Exception as e:
+            return {'action': 'workspace_test', 'error': str(e), 'status': 'failed'}
+    
+    @app.route('/test-home')
+    def test_home():
+        timestamp = datetime.now().isoformat()
+        test_file = f"/home/user/home-test-{timestamp}.txt"
+        test_content = f"Home test created at {timestamp}"
+        
+        try:
+            os.makedirs('/home/user', exist_ok=True)
+            with open(test_file, 'w') as f:
+                f.write(test_content)
+            
+            files = os.listdir('/home/user') if os.path.exists('/home/user') else []
+            return {
+                'action': 'home_test',
+                'file_created': test_file,
+                'content': test_content,
+                'home_files': files,
+                'status': 'success'
+            }
+        except Exception as e:
+            return {'action': 'home_test', 'error': str(e), 'status': 'failed'}
+    
+    @app.route('/test-install')
+    def test_install():
+        try:
+            result = subprocess.run(['pip', 'install', 'requests'], 
+                                  capture_output=True, text=True, timeout=60)
+            
+            check_result = subprocess.run(['pip', 'show', 'requests'], 
+                                        capture_output=True, text=True)
+            
+            return {
+                'action': 'package_install',
+                'install_output': result.stdout,
+                'install_error': result.stderr,
+                'package_check': check_result.stdout,
+                'status': 'success' if result.returncode == 0 else 'failed'
+            }
+        except Exception as e:
+            return {'action': 'package_install', 'error': str(e), 'status': 'failed'}
+    
+    @app.route('/check-all')
+    def check_all():
+        try:
+            workspace_files = os.listdir('/workspace') if os.path.exists('/workspace') else []
+            home_files = os.listdir('/home/user') if os.path.exists('/home/user') else []
+            
+            # Check installed packages
+            pip_result = subprocess.run(['pip', 'list'], capture_output=True, text=True)
+            installed_packages = pip_result.stdout.split('\n')[:10]  # First 10 lines
+            
+            return {
+                'action': 'check_all',
+                'workspace_files': workspace_files,
+                'home_files': home_files,
+                'installed_packages': installed_packages,
+                'timestamp': datetime.now().isoformat(),
+                'status': 'success'
+            }
+        except Exception as e:
+            return {'action': 'check_all', 'error': str(e), 'status': 'failed'}
+    
+    @app.route('/restart-pod')
+    def restart_pod():
+        return {
+            'action': 'restart_pod',
+            'message': 'Run: kubectl delete pod -l app=ai-environment',
+            'note': 'Pod will restart automatically and data should persist',
+            'status': 'info'
+        }
+    
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=5001)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: persistence-test-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: persistence-test-api
+  template:
+    metadata:
+      labels:
+        app: persistence-test-api
+    spec:
+      containers:
+      - name: persistence-test-api
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install flask && python /app/app.py
+        ports:
+        - containerPort: 5001
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        - name: workspace-data
+          mountPath: /workspace
+        - name: home-data
+          mountPath: /home/user
+      volumes:
+      - name: app
+        configMap:
+          name: persistence-test-api
+      - name: workspace-data
+        persistentVolumeClaim:
+          claimName: workspace-pvc
+      - name: home-data
+        persistentVolumeClaim:
+          claimName: home-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: persistence-test-api
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8080
+    targetPort: 5001
+  selector:
+    app: persistence-test-api
