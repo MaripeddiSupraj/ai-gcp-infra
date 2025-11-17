@@ -240,7 +240,7 @@ def create_session():
                                 volume_mounts=[
                                     client.V1VolumeMount(
                                         name="user-data",
-                                        mount_path="/workspace"
+                                        mount_path="/app"
                                     )
                                 ]
                             )
@@ -563,15 +563,15 @@ def delete_session(session_uuid):
                                     command=["/bin/sh", "-c"],
                                     args=[
                                         f"apk add --no-cache zip && "
-                                        f"cd /workspace && "
-                                        f"zip -r /backup/workspace-{session_uuid}-$(date +%Y%m%d-%H%M%S).zip . && "
+                                        f"cd /app && "
+                                        f"zip -r /backup/app-{session_uuid}-$(date +%Y%m%d-%H%M%S).zip . && "
                                         f"ls -lh /backup/ && "
                                         f"echo 'Backup completed for {session_uuid}'"
                                     ],
                                     volume_mounts=[
                                         client.V1VolumeMount(
                                             name="user-data",
-                                            mount_path="/workspace",
+                                            mount_path="/app",
                                             read_only=True
                                         ),
                                         client.V1VolumeMount(
