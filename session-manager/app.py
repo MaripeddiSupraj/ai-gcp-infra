@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 1111))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '3.1.1'  # Optimized pod resources for better cluster utilization
+VERSION = '3.1.2'  # CRITICAL FIX: Mount PVC to /app instead of /workspace for data persistence
 
 # Load k8s config
 try:
