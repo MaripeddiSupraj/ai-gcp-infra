@@ -1,0 +1,129 @@
+---
+# ============================================================================
+# CLIENT'S EXACT PERSISTENCE ARCHITECTURE
+# ============================================================================
+# Single PVC with subPath mounts - Production proven approach
+# Based on client's kubernetes-config.yaml
+# ============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-environment-pvc
+  namespace: default
+  labels:
+    app: ai-environment
+    component: persistent-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi  # Single consolidated storage
+  storageClassName: standard-rwo
+
+---
+# ============================================================================
+# ENHANCED DEPLOYMENT WITH CLIENT'S SUBPATH STRATEGY
+# ============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-environment-unified
+  labels:
+    app: ai-environment
+    version: v2.0.0-client-architecture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-environment-unified
+  template:
+    metadata:
+      labels:
+        app: ai-environment-unified
+    spec:
+      containers:
+      - name: ai-environment
+        image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest
+        ports:
+        - containerPort: 1111
+          name: http
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        
+        # ====================================================================
+        # CLIENT'S EXACT SUBPATH MOUNT STRATEGY
+        # ====================================================================
+        # Following client's kubernetes-config.yaml exactly
+        
+        volumeMounts:
+        # MongoDB 7.0 data persistence
+        - name: persistent-storage
+          mountPath: /data/db
+          subPath: data/db
+        
+        # Application workspace (Frontend + Backend code + node_modules)
+        - name: persistent-storage
+          mountPath: /app
+          subPath: app
+        
+        # Python 3.11 venv persistence (entire /root directory)
+        - name: persistent-storage
+          mountPath: /root
+          subPath: root
+        
+        # System configs (supervisor)
+        - name: persistent-storage
+          mountPath: /etc/supervisor
+          subPath: etc/supervisor
+        
+        # System logs
+        - name: persistent-storage
+          mountPath: /var/log
+          subPath: var/log
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      
+      # ======================================================================
+      # CLIENT'S SINGLE VOLUME STRATEGY
+      # ======================================================================
+      
+      volumes:
+      - name: persistent-storage
+        persistentVolumeClaim:
+          claimName: ai-environment-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-environment-unified
+  labels:
+    app: ai-environment-unified
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 1111
+    protocol: TCP
+    name: http
+  selector:
+    app: ai-environment-unified
