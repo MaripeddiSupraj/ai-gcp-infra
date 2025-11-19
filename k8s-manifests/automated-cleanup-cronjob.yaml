@@ -1,0 +1,102 @@
+---
+# ============================================================================
+# AUTOMATED CLEANUP CRONJOB
+# ============================================================================
+# Runs cleanup script every 6 hours to maintain cluster health
+# ============================================================================
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: resource-cleanup
+  namespace: default
+  labels:
+    app: resource-cleanup
+    component: maintenance
+spec:
+  # Run every 6 hours
+  schedule: "0 */6 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: resource-cleanup
+          restartPolicy: OnFailure
+          containers:
+          - name: cleanup
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              echo "🧹 Starting automated cleanup..."
+              
+              # Cleanup orphaned backup pods
+              PENDING_BACKUPS=$(kubectl get pods --field-selector=status.phase=Pending | grep "^backup-" | wc -l || echo "0")
+              if [ "$PENDING_BACKUPS" -gt 0 ]; then
+                echo "Deleting $PENDING_BACKUPS orphaned backup pods..."
+                kubectl get pods --field-selector=status.phase=Pending | grep "^backup-" | awk '{print $1}' | xargs kubectl delete pod --ignore-not-found=true
+              fi
+              
+              # Cleanup orphaned user services
+              USER_SERVICES=$(kubectl get svc | grep "^user-" | awk '{print $1}' || echo "")
+              ORPHANED_COUNT=0
+              if [ -n "$USER_SERVICES" ]; then
+                for svc in $USER_SERVICES; do
+                  if ! kubectl get pods | grep -q "^$svc-"; then
+                    echo "Deleting orphaned service: $svc"
+                    kubectl delete svc "$svc" --ignore-not-found=true
+                    ((ORPHANED_COUNT++))
+                  fi
+                done
+              fi
+              
+              echo "✅ Cleanup completed: $PENDING_BACKUPS backup pods, $ORPHANED_COUNT services"
+            resources:
+              requests:
+                memory: "64Mi"
+                cpu: "100m"
+              limits:
+                memory: "128Mi"
+                cpu: "200m"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
+---
+# Service Account for cleanup job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: resource-cleanup
+  namespace: default
+
+---
+# Role for cleanup operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: resource-cleanup
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "persistentvolumeclaims"]
+  verbs: ["get", "list", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+
+---
+# Role binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: resource-cleanup
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: resource-cleanup
+subjects:
+- kind: ServiceAccount
+  name: resource-cleanup
+  namespace: default
