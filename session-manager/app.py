@@ -238,9 +238,31 @@ def create_session():
                                     client.V1EnvVar(name="USER_ID", value=user_id)
                                 ],
                                 volume_mounts=[
+                                    # Multiple subPath mounts for different data types
                                     client.V1VolumeMount(
                                         name="user-data",
-                                        mount_path="/app"
+                                        mount_path="/app",
+                                        sub_path="app"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/root",
+                                        sub_path="root"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/etc/supervisor",
+                                        sub_path="etc/supervisor"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/var/log",
+                                        sub_path="var/log"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/data/db",
+                                        sub_path="data/db"
                                     )
                                 ]
                             )
@@ -267,7 +289,7 @@ def create_session():
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 resources=client.V1ResourceRequirements(
-                    requests={"storage": "5Gi"}
+                    requests={"storage": "10Gi"}
                 )
             )
         )
