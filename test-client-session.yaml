@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: client-pvc-test123
+  labels:
+    type: client-single-pvc
+    session: test123
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-test123
+  labels:
+    session: test123
+    type: client-pod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-test123
+  template:
+    metadata:
+      labels:
+        app: client-test123
+    spec:
+      containers:
+      - name: client-pod
+        image: python:3.11-slim
+        command: ["/bin/bash"]
+        args: ["-c", "echo 'CLIENT Test Session Started'; echo 'Checking 5 subPath mounts:'; ls -la /app /root /etc/supervisor /var/log /data/db; echo 'Creating test files...'; mkdir -p /app/workspace /root/.venv /etc/supervisor/conf.d /var/log/app /data/db/mongodb; echo 'Test files created in all 5 subPaths'; sleep 3600"]
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 250m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+        volumeMounts:
+        - name: storage
+          mountPath: /app
+          subPath: app
+        - name: storage
+          mountPath: /root
+          subPath: root
+        - name: storage
+          mountPath: /etc/supervisor
+          subPath: etc/supervisor
+        - name: storage
+          mountPath: /var/log
+          subPath: var/log
+        - name: storage
+          mountPath: /data/db
+          subPath: data/db
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: client-pvc-test123
