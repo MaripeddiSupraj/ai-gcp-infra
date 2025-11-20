@@ -191,3 +191,70 @@ kubectl get svc session-manager-lb -n fresh-system -w
 # Check cert-manager logs
 kubectl logs -n cert-manager deployment/cert-manager
 ```
+
+## 📡 Supported API Endpoints
+
+All endpoints tested and production-ready:
+
+### Public Endpoints
+```bash
+# Health check (no auth required)
+curl http://<LOADBALANCER-IP>/health
+```
+
+### Authenticated Endpoints
+All require `X-API-Key` header:
+
+```bash
+# 1. Create session
+curl -X POST http://<IP>/session/create \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user@example.com"}'
+
+# 2. Get session status
+curl http://<IP>/session/{uuid}/status \
+  -H "X-API-Key: your-api-key"
+
+# 3. Sleep session (scale to 0)
+curl -X POST http://<IP>/session/{uuid}/sleep \
+  -H "X-API-Key: your-api-key"
+
+# 4. Wake session (scale to 1)
+curl -X POST http://<IP>/session/{uuid}/wake \
+  -H "X-API-Key: your-api-key"
+
+# 5. Scale resources
+curl -X POST http://<IP>/session/{uuid}/scale \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"scale": "up"}'
+
+# 6. Send chat message
+curl -X POST http://<IP>/session/{uuid}/chat \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello"}'
+
+# 7. Delete session
+curl -X DELETE http://<IP>/session/{uuid} \
+  -H "X-API-Key: your-api-key"
+
+# 8. List all sessions (admin)
+curl http://<IP>/sessions \
+  -H "X-API-Key: your-api-key"
+
+# 9. Get metrics
+curl http://<IP>/metrics
+```
+
+### API Features
+- ✅ API Key authentication
+- ✅ Rate limiting (100 req/min)
+- ✅ Auto-scaling (KEDA)
+- ✅ Persistent storage
+- ✅ Automatic backups
+- ✅ SSL/TLS support
+- ✅ Multi-user isolation
+
+For detailed API documentation, see [CLIENT-HANDOVER.md](CLIENT-HANDOVER.md)
