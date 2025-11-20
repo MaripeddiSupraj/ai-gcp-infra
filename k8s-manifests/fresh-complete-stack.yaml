@@ -1,0 +1,200 @@
+---
+# Redis for session management
+apiVersion: v1
+kind: Service
+metadata:
+  name: fresh-redis
+  namespace: default
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: fresh-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fresh-redis
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fresh-redis
+  template:
+    metadata:
+      labels:
+        app: fresh-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+# Secrets for Redis and API
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fresh-redis-credentials
+  namespace: default
+type: Opaque
+stringData:
+  password: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fresh-api-credentials
+  namespace: default
+type: Opaque
+stringData:
+  api-key: "your-secure-api-key-change-in-production"
+---
+# Backup PVC for session backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fresh-backup-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard-rwo
+---
+# Session Manager ServiceAccount and RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fresh-session-manager
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fresh-session-manager
+  namespace: default
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["create", "get", "list", "delete", "patch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["create", "get", "list", "delete"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["create", "get", "list", "delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "get", "list", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["create", "get", "list", "delete"]
+- apiGroups: ["keda.sh"]
+  resources: ["scaledobjects", "triggerauthentications"]
+  verbs: ["create", "get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fresh-session-manager
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fresh-session-manager
+subjects:
+- kind: ServiceAccount
+  name: fresh-session-manager
+  namespace: default
+---
+# Session Manager Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fresh-session-manager
+  namespace: default
+  labels:
+    app: fresh-session-manager
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fresh-session-manager
+  template:
+    metadata:
+      labels:
+        app: fresh-session-manager
+    spec:
+      serviceAccountName: fresh-session-manager
+      containers:
+      - name: session-manager
+        image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/session-manager:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: REDIS_HOST
+          value: "fresh-redis"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fresh-redis-credentials
+              key: password
+        - name: SESSION_TTL
+          value: "86400"
+        - name: USER_POD_IMAGE
+          value: "us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest"
+        - name: USER_POD_PORT
+          value: "8080"
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: fresh-api-credentials
+              key: api-key
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+# Session Manager Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: fresh-session-manager
+  namespace: default
+spec:
+  type: LoadBalancer
+  selector:
+    app: fresh-session-manager
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
