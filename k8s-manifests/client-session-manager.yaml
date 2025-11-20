@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-session-manager
+  labels:
+    app: client-session-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-session-manager
+  template:
+    metadata:
+      labels:
+        app: client-session-manager
+    spec:
+      containers:
+      - name: session-manager
+        image: us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/client-session-manager:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: REDIS_HOST
+          value: "client-redis"
+        - name: API_KEY
+          value: "client-api-key-2024"
+        - name: USER_POD_IMAGE
+          value: "us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/emergent-agent:latest"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-session-manager
+spec:
+  selector:
+    app: client-session-manager
+  ports:
+  - port: 80
+    targetPort: 5000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: client-session-manager
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  rules:
+  - host: client-api.preview.hyperbola.in
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: client-session-manager
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - client-api.preview.hyperbola.in
+    secretName: client-api-tls
