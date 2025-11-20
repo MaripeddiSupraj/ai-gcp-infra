@@ -337,7 +337,6 @@ def create_session():
                 "kind": "ScaledObject",
                 "metadata": {
                     "name": f"user-{session_uuid}-scaler",
-                    "namespace": "default",
                     "labels": {"session-uuid": session_uuid}
                 },
                 "spec": {
@@ -581,88 +580,55 @@ def delete_session(session_uuid):
     logger.info(f"🗑️ Deleting session: {session_uuid}")
     
     try:
-        # Backup PVC data before deletion
+        # Backup PVC using VolumeSnapshot (CSI snapshot)
         try:
-            logger.info(f"💾 Starting PVC backup for: {session_uuid}")
+            logger.info(f"💾 Creating VolumeSnapshot for: {session_uuid}")
             
-            # Create backup job to zip and upload data
-            backup_job = client.V1Job(
-                metadata=client.V1ObjectMeta(
-                    name=f"backup-{session_uuid}",
-                    labels={"session-uuid": session_uuid, "job-type": "backup"}
-                ),
-                spec=client.V1JobSpec(
-                    ttl_seconds_after_finished=300,  # Auto-delete after 5 min
-                    template=client.V1PodTemplateSpec(
-                        spec=client.V1PodSpec(
-                            restart_policy="Never",
-                            containers=[
-                                client.V1Container(
-                                    name="backup",
-                                    image="alpine:latest",
-                                    command=["/bin/sh", "-c"],
-                                    args=[
-                                        f"apk add --no-cache zip && "
-                                        f"cd /app && "
-                                        f"zip -r /backup/app-{session_uuid}-$(date +%Y%m%d-%H%M%S).zip . && "
-                                        f"ls -lh /backup/ && "
-                                        f"echo 'Backup completed for {session_uuid}'"
-                                    ],
-                                    volume_mounts=[
-                                        client.V1VolumeMount(
-                                            name="user-data",
-                                            mount_path="/app",
-                                            read_only=True
-                                        ),
-                                        client.V1VolumeMount(
-                                            name="backup-storage",
-                                            mount_path="/backup"
-                                        )
-                                    ]
-                                )
-                            ],
-                            volumes=[
-                                client.V1Volume(
-                                    name="user-data",
-                                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                        claim_name=f"pvc-{session_uuid}"
-                                    )
-                                ),
-                                client.V1Volume(
-                                    name="backup-storage",
-                                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                        claim_name="backup-pvc"  # Shared backup storage
-                                    )
-                                )
-                            ]
-                        )
-                    )
-                )
+            snapshot_body = {
+                "apiVersion": "snapshot.storage.k8s.io/v1",
+                "kind": "VolumeSnapshot",
+                "metadata": {
+                    "name": f"backup-{session_uuid}",
+                    "namespace": "fresh-system"
+                },
+                "spec": {
+                    "volumeSnapshotClassName": "csi-gce-pd-snapshot-class",
+                    "source": {
+                        "persistentVolumeClaimName": f"pvc-{session_uuid}"
+                    }
+                }
+            }
+            
+            custom_api.create_namespaced_custom_object(
+                group="snapshot.storage.k8s.io",
+                version="v1",
+                namespace="fresh-system",
+                plural="volumesnapshots",
+                body=snapshot_body
             )
+            logger.info(f"✅ VolumeSnapshot created: backup-{session_uuid}")
             
-            batch_v1 = client.BatchV1Api()
-            batch_v1.create_namespaced_job(namespace="fresh-system", body=backup_job)
-            logger.info(f"✅ Backup job created: backup-{session_uuid}")
-            
-            # Wait for backup to complete (max 60 seconds)
-            import time
-            for i in range(12):  # 12 * 5 = 60 seconds
+            # Wait for snapshot to be ready (max 60 seconds)
+            for i in range(12):
                 time.sleep(5)
                 try:
-                    job = batch_v1.read_namespaced_job(name=f"backup-{session_uuid}", namespace="fresh-system")
-                    if job.status.succeeded:
-                        logger.info(f"✅ Backup completed: {session_uuid}")
-                        break
-                    elif job.status.failed:
-                        logger.warning(f"⚠️ Backup failed: {session_uuid}")
+                    snapshot = custom_api.get_namespaced_custom_object(
+                        group="snapshot.storage.k8s.io",
+                        version="v1",
+                        namespace="fresh-system",
+                        plural="volumesnapshots",
+                        name=f"backup-{session_uuid}"
+                    )
+                    if snapshot.get('status', {}).get('readyToUse'):
+                        logger.info(f"✅ Snapshot ready: backup-{session_uuid}")
                         break
                 except:
                     pass
             
         except Exception as e:
-            logger.warning(f"⚠️ Backup failed (continuing with deletion): {str(e)}")
-        
-        # Delete deployment
+            logger.warning(f"⚠️ Snapshot failed (continuing with deletion): {str(e)}")
+
+                # Delete deployment
         try:
             v1.delete_namespaced_deployment(
                 name=f"user-{session_uuid}",
@@ -715,7 +681,7 @@ def delete_session(session_uuid):
                 raise
             logger.warning(f"KEDA ScaledObject not found: user-{session_uuid}-scaler")
         
-        # Delete PVC
+        # Delete PVC (now safe since snapshot is created)
         try:
             core_v1.delete_namespaced_persistent_volume_claim(
                 name=f"pvc-{session_uuid}",

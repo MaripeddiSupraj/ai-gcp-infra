@@ -79,6 +79,41 @@ spec:
       storage: 20Gi
   storageClassName: standard-rwo
 ---
+# Backup Storage Pod
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backup-storage
+  namespace: fresh-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backup-storage
+  template:
+    metadata:
+      labels:
+        app: backup-storage
+    spec:
+      containers:
+      - name: backup-storage
+        image: busybox:latest
+        command: ["sleep", "infinity"]
+        volumeMounts:
+        - name: backup-volume
+          mountPath: /backup
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: backup-volume
+        persistentVolumeClaim:
+          claimName: backup-pvc
+---
 # Session Manager RBAC
 apiVersion: v1
 kind: ServiceAccount
