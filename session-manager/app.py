@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 8080))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '3.1.2'  # CRITICAL FIX: Mount PVC to /app instead of /workspace for data persistence
+VERSION = '4.0.0'  # CLIENT REQUIREMENT: Single PVC with multiple subPaths for system installation persistence
 
 # Load k8s config
 try:
@@ -239,17 +239,38 @@ def create_session():
                                 ],
                                 volume_mounts=[
                                     client.V1VolumeMount(
-                                        name="user-data",
-                                        mount_path="/app"
+                                        name="persistent-storage",
+                                        mount_path="/app",
+                                        sub_path="app"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="persistent-storage",
+                                        mount_path="/root",
+                                        sub_path="root"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="persistent-storage",
+                                        mount_path="/etc/supervisor",
+                                        sub_path="etc/supervisor"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="persistent-storage",
+                                        mount_path="/var/log",
+                                        sub_path="var/log"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="persistent-storage",
+                                        mount_path="/data/db",
+                                        sub_path="data/db"
                                     )
                                 ]
                             )
                         ],
                         volumes=[
                             client.V1Volume(
-                                name="user-data",
+                                name="persistent-storage",
                                 persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                    claim_name=f"pvc-{session_uuid}"
+                                    claim_name=f"client-pvc-{session_uuid}"
                                 )
                             )
                         ]
@@ -258,22 +279,27 @@ def create_session():
             )
         )
         
-        # Create PVC for user data
+        # Create CLIENT'S SINGLE 10GB PVC with 5 subPaths
         pvc = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
-                name=f"pvc-{session_uuid}",
-                labels={"session-uuid": session_uuid}
+                name=f"client-pvc-{session_uuid}",
+                labels={"session-uuid": session_uuid, "type": "client-single-pvc"}
             ),
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 resources=client.V1ResourceRequirements(
-                    requests={"storage": "5Gi"}
+                    requests={"storage": "10Gi"}
                 )
             )
         )
         
         core_v1.create_namespaced_persistent_volume_claim(namespace="default", body=pvc)
-        logger.info(f"✅ PVC created: pvc-{session_uuid}")
+        logger.info(f"✅ CLIENT PVC created: client-pvc-{session_uuid} (10Gi) - single PVC with 5 subPaths")
+        logger.info(f"   📁 /app ← subPath: app (workspace)")
+        logger.info(f"   📁 /root ← subPath: root (Python venv)")
+        logger.info(f"   📁 /etc/supervisor ← subPath: etc/supervisor (configs)")
+        logger.info(f"   📁 /var/log ← subPath: var/log (logs)")
+        logger.info(f"   📁 /data/db ← subPath: data/db (MongoDB)")
         
         v1.create_namespaced_deployment(namespace="default", body=deployment)
         logger.info(f"✅ Deployment created: user-{session_uuid}")
@@ -585,7 +611,7 @@ def delete_session(session_uuid):
                                 client.V1Volume(
                                     name="user-data",
                                     persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                        claim_name=f"pvc-{session_uuid}"
+                                        claim_name=f"client-pvc-{session_uuid}"
                                     )
                                 ),
                                 client.V1Volume(
@@ -675,17 +701,17 @@ def delete_session(session_uuid):
                 raise
             logger.warning(f"KEDA ScaledObject not found: user-{session_uuid}-scaler")
         
-        # Delete PVC
+        # Delete CLIENT PVC
         try:
             core_v1.delete_namespaced_persistent_volume_claim(
-                name=f"pvc-{session_uuid}",
+                name=f"client-pvc-{session_uuid}",
                 namespace="default"
             )
-            logger.info(f"✅ PVC deleted: pvc-{session_uuid}")
+            logger.info(f"✅ CLIENT PVC deleted: client-pvc-{session_uuid}")
         except ApiException as e:
             if e.status != 404:
                 raise
-            logger.warning(f"PVC not found: pvc-{session_uuid}")
+            logger.warning(f"CLIENT PVC not found: client-pvc-{session_uuid}")
         
         # Clean up Redis data (TriggerAuthentication is shared, don't delete)
         r.delete(f'session:{session_uuid}')
