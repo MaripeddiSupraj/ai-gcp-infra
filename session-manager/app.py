@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 8080))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '3.2.0'  # Production: Added KEDA auto-scaling for resource optimization
+VERSION = '3.3.0'  # Production: Added KEDA auto-scaling for resource optimization
 
 # Load k8s config
 try:
@@ -272,10 +272,10 @@ def create_session():
             )
         )
         
-        core_v1.create_namespaced_persistent_volume_claim(namespace="default", body=pvc)
+        core_v1.create_namespaced_persistent_volume_claim(namespace="fresh-system", body=pvc)
         logger.info(f"✅ PVC created: pvc-{session_uuid}")
         
-        v1.create_namespaced_deployment(namespace="default", body=deployment)
+        v1.create_namespaced_deployment(namespace="fresh-system", body=deployment)
         logger.info(f"✅ Deployment created: user-{session_uuid}")
         
         # Create ClusterIP service (internal)
@@ -290,7 +290,7 @@ def create_session():
             )
         )
         
-        core_v1.create_namespaced_service(namespace="default", body=service)
+        core_v1.create_namespaced_service(namespace="fresh-system", body=service)
         logger.info(f"✅ Service created: user-{session_uuid}")
         
         # Create Ingress for external access via subdomain
@@ -327,7 +327,7 @@ def create_session():
         )
         
         networking_v1 = client.NetworkingV1Api()
-        networking_v1.create_namespaced_ingress(namespace="default", body=ingress)
+        networking_v1.create_namespaced_ingress(namespace="fresh-system", body=ingress)
         logger.info(f"✅ Ingress created: user-{session_uuid}")
         
         # Create KEDA ScaledObject for auto-scaling
@@ -367,7 +367,7 @@ def create_session():
             custom_api.create_namespaced_custom_object(
                 group="keda.sh",
                 version="v1alpha1",
-                namespace="default",
+                namespace="fresh-system",
                 plural="scaledobjects",
                 body=scaled_object
             )
@@ -417,12 +417,12 @@ def wake_session(session_uuid):
     
     try:
         # Scale deployment to 1
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         if deployment.spec.replicas == 0:
             deployment.spec.replicas = 1
             v1.patch_namespaced_deployment(
                 name=f"user-{session_uuid}",
-                namespace="default",
+                namespace="fresh-system",
                 body=deployment
             )
             logger.info(f"⏰ Waking up session: {session_uuid}")
@@ -455,7 +455,7 @@ def session_status(session_uuid):
     queue_length = r.llen(f'queue:{session_uuid}')
     
     try:
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         replicas = deployment.status.replicas or 0
     except ApiException as e:
         logger.warning(f"Deployment not found: {session_uuid}")
@@ -498,12 +498,12 @@ def chat_message(session_uuid):
         # WORKAROUND: Manually scale to 1 since KEDA 0→1 scaling doesn't work with auth
         # KEDA will handle 1→0 scaling after cooldown period
         try:
-            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
             if deployment.spec.replicas == 0:
                 deployment.spec.replicas = 1
                 v1.patch_namespaced_deployment(
                     name=f"user-{session_uuid}",
-                    namespace="default",
+                    namespace="fresh-system",
                     body=deployment
                 )
                 logger.info(f"⚡ Manually scaled deployment to 1: user-{session_uuid}")
@@ -530,9 +530,9 @@ def chat_message(session_uuid):
         
         # Try to forward to user pod
         try:
-            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
             if deployment.status.replicas and deployment.status.replicas > 0:
-                pod_service = f"user-{session_uuid}.default.svc.cluster.local"
+                pod_service = f"user-{session_uuid}.fresh-system.svc.cluster.local"
                 response = requests.post(
                     f"http://{pod_service}:80/chat",
                     json={"message": message},
@@ -641,7 +641,7 @@ def delete_session(session_uuid):
             )
             
             batch_v1 = client.BatchV1Api()
-            batch_v1.create_namespaced_job(namespace="default", body=backup_job)
+            batch_v1.create_namespaced_job(namespace="fresh-system", body=backup_job)
             logger.info(f"✅ Backup job created: backup-{session_uuid}")
             
             # Wait for backup to complete (max 60 seconds)
@@ -649,7 +649,7 @@ def delete_session(session_uuid):
             for i in range(12):  # 12 * 5 = 60 seconds
                 time.sleep(5)
                 try:
-                    job = batch_v1.read_namespaced_job(name=f"backup-{session_uuid}", namespace="default")
+                    job = batch_v1.read_namespaced_job(name=f"backup-{session_uuid}", namespace="fresh-system")
                     if job.status.succeeded:
                         logger.info(f"✅ Backup completed: {session_uuid}")
                         break
@@ -666,7 +666,7 @@ def delete_session(session_uuid):
         try:
             v1.delete_namespaced_deployment(
                 name=f"user-{session_uuid}",
-                namespace="default",
+                namespace="fresh-system",
                 body=client.V1DeleteOptions(grace_period_seconds=30)
             )
             logger.info(f"✅ Deployment deleted: user-{session_uuid}")
@@ -679,7 +679,7 @@ def delete_session(session_uuid):
         try:
             core_v1.delete_namespaced_service(
                 name=f"user-{session_uuid}",
-                namespace="default"
+                namespace="fresh-system"
             )
             logger.info(f"✅ Service deleted: user-{session_uuid}")
         except ApiException as e:
@@ -692,7 +692,7 @@ def delete_session(session_uuid):
             networking_v1 = client.NetworkingV1Api()
             networking_v1.delete_namespaced_ingress(
                 name=f"user-{session_uuid}",
-                namespace="default"
+                namespace="fresh-system"
             )
             logger.info(f"✅ Ingress deleted: user-{session_uuid}")
         except ApiException as e:
@@ -705,7 +705,7 @@ def delete_session(session_uuid):
             custom_api.delete_namespaced_custom_object(
                 group="keda.sh",
                 version="v1alpha1",
-                namespace="default",
+                namespace="fresh-system",
                 plural="scaledobjects",
                 name=f"user-{session_uuid}-scaler"
             )
@@ -719,7 +719,7 @@ def delete_session(session_uuid):
         try:
             core_v1.delete_namespaced_persistent_volume_claim(
                 name=f"pvc-{session_uuid}",
-                namespace="default"
+                namespace="fresh-system"
             )
             logger.info(f"✅ PVC deleted: pvc-{session_uuid}")
         except ApiException as e:
@@ -768,7 +768,7 @@ def scale_session(session_uuid):
         raise ValueError("scale must be 'up' or 'down'")
     
     try:
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         
         if scale_type == 'up':
             # Scale up: 1Gi RAM, 1 CPU
@@ -787,7 +787,7 @@ def scale_session(session_uuid):
         
         v1.patch_namespaced_deployment(
             name=f"user-{session_uuid}",
-            namespace="default",
+            namespace="fresh-system",
             body=deployment
         )
         
@@ -825,11 +825,11 @@ def sleep_session(session_uuid):
         r.delete(f'queue:{session_uuid}')
         
         # Scale deployment to 0
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         deployment.spec.replicas = 0
         v1.patch_namespaced_deployment(
             name=f"user-{session_uuid}",
-            namespace="default",
+            namespace="fresh-system",
             body=deployment
         )
         
