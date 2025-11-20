@@ -79,14 +79,8 @@ docker push us-central1-docker.pkg.dev/<project-id>/docker-repo/ai-environment:l
 ## Step 5: Deploy Fresh System Stack
 
 ```bash
-# Deploy complete system in fresh-system namespace
+# Deploy complete system (single command)
 kubectl apply -f k8s-manifests/fresh-namespace-stack.yaml
-
-# Deploy cross-namespace RBAC
-kubectl apply -f k8s-manifests/fresh-cross-namespace-rbac.yaml
-
-# Deploy KEDA trigger authentication
-kubectl apply -f k8s-manifests/fresh-keda.yaml
 ```
 
 **What gets deployed:**
@@ -166,9 +160,7 @@ kubectl rollout restart deployment session-manager -n fresh-system
 | File | Purpose |
 |------|---------|
 | `environments/dev/main.tf` | Terraform infrastructure |
-| `k8s-manifests/fresh-namespace-stack.yaml` | Complete system deployment |
-| `k8s-manifests/fresh-cross-namespace-rbac.yaml` | Cross-namespace permissions |
-| `k8s-manifests/fresh-keda.yaml` | KEDA auto-scaling config |
+| `k8s-manifests/fresh-namespace-stack.yaml` | Complete system deployment (all-in-one) |
 | `session-manager/app.py` | Session Manager API code |
 | `app/` | User pod AI environment code |
 
