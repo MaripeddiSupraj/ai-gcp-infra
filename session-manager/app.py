@@ -249,16 +249,20 @@ def create_session():
                                         mount_path="/root",
                                         sub_path="root"
                                     ),
-                                    client.V1VolumeMount(
-                                        name="user-data",
-                                        mount_path="/etc/supervisor",
-                                        sub_path="etc/supervisor"
-                                    ),
-                                    client.V1VolumeMount(
-                                        name="user-data",
-                                        mount_path="/var/log",
-                                        sub_path="var/log"
-                                    ),
+                                    # Commented out - causes crash with current test image
+                                    # Uncomment when using compatible image
+                                    # client.V1VolumeMount(
+                                    #     name="user-data",
+                                    #     mount_path="/etc/supervisor",
+                                    #     sub_path="etc/supervisor"
+                                    # ),
+                                    # Commented out - interferes with supervisor logs
+                                    # Uncomment when using compatible image
+                                    # client.V1VolumeMount(
+                                    #     name="user-data",
+                                    #     mount_path="/var/log",
+                                    #     sub_path="var/log"
+                                    # ),
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/data/db",
@@ -288,6 +292,7 @@ def create_session():
             ),
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
+                storage_class_name="premium-rwo",  # SSD storage for better performance
                 resources=client.V1ResourceRequirements(
                     requests={"storage": "10Gi"}
                 )
