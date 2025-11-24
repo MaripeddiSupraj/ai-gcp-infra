@@ -249,6 +249,27 @@ def create_session():
                                         mount_path="/root",
                                         sub_path="root"
                                     ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/data/db",
+                                        sub_path="data/db"
+                                    ),
+                                    # System installation persistence paths
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/usr/local",
+                                        sub_path="usr/local"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/opt",
+                                        sub_path="opt"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/var/lib",
+                                        sub_path="var/lib"
+                                    ),
                                     # Commented out - causes crash with current test image
                                     # Uncomment when using compatible image
                                     # client.V1VolumeMount(
@@ -262,12 +283,7 @@ def create_session():
                                     #     name="user-data",
                                     #     mount_path="/var/log",
                                     #     sub_path="var/log"
-                                    # ),
-                                    client.V1VolumeMount(
-                                        name="user-data",
-                                        mount_path="/data/db",
-                                        sub_path="data/db"
-                                    )
+                                    # )
                                 ]
                             )
                         ],

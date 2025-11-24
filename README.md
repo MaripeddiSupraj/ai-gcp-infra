@@ -87,6 +87,30 @@ terraform plan
 terraform apply
 ```
 
+### Deploy Session Management System
+
+After infrastructure is deployed:
+
+1. **Deploy Kubernetes components**:
+   ```bash
+   kubectl apply -f k8s-manifests/fresh-namespace-stack.yaml
+   ```
+
+2. **Wait for pods to be ready**:
+   ```bash
+   kubectl get pods -n fresh-system -w
+   ```
+
+3. **Get external IP**:
+   ```bash
+   kubectl get svc -n fresh-system session-manager
+   ```
+
+4. **Test the system**:
+   ```bash
+   ./final-persistence-test.sh
+   ```
+
 ## 📚 Module Documentation
 
 Each module has comprehensive documentation:
@@ -221,8 +245,17 @@ resources=client.V1ResourceRequirements(
 - `/app` - Application code and projects
 - `/root` - User home directory and configs
 - `/data/db` - Database and data files
+- `/usr/local` - **System software installations (pip, npm, etc.)**
+- `/opt` - **Optional software packages**
+- `/var/lib` - **Application data and package state**
 
-**To Enable Additional Paths** - Uncomment in `session-manager/app.py` lines 85-95:
+**Software Installation Persistence:**
+✅ `pip install` packages persist in `/usr/local`  
+✅ `apt install` packages persist in `/var/lib`  
+✅ Custom software in `/opt` persists  
+✅ User configurations in `/root` persist  
+
+**To Enable Additional Paths** - Uncomment in `session-manager/app.py`:
 ```python
 # Uncomment these when using compatible Docker image:
 client.V1VolumeMount(
