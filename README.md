@@ -87,6 +87,30 @@ terraform plan
 terraform apply
 ```
 
+### Deploy Session Management System
+
+After infrastructure is deployed:
+
+1. **Deploy Kubernetes components**:
+   ```bash
+   kubectl apply -f k8s-manifests/fresh-namespace-stack.yaml
+   ```
+
+2. **Wait for pods to be ready**:
+   ```bash
+   kubectl get pods -n fresh-system -w
+   ```
+
+3. **Get external IP**:
+   ```bash
+   kubectl get svc -n fresh-system session-manager
+   ```
+
+4. **Test the system**:
+   ```bash
+   ./final-persistence-test.sh
+   ```
+
 ## 📚 Module Documentation
 
 Each module has comprehensive documentation:
@@ -173,6 +197,77 @@ tfsec modules/
 
 # Run linter
 tflint --recursive
+```
+
+## ⚙️ Configuration
+
+### Storage Configuration
+
+**Current Settings:**
+- **Storage Type**: SSD (`premium-rwo`)
+- **Storage Size**: 10GB per user session
+- **Cost**: ~$1.70/month per active session
+
+**To Modify Storage:**
+
+1. **Change Storage Size** - Edit `session-manager/app.py` line 133:
+   ```python
+   requests={"storage": "20Gi"}  # Change from 10Gi to desired size
+   ```
+
+2. **Change Storage Type** - Edit `session-manager/app.py` line 131:
+   ```python
+   storage_class_name="standard-rwo"  # HDD (~$0.40/month per 10GB)
+   storage_class_name="premium-rwo"   # SSD (~$1.70/month per 10GB)
+   ```
+
+3. **Rebuild and Deploy:**
+   ```bash
+   cd session-manager
+   docker build --platform linux/amd64 -t us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/session-manager:latest .
+   docker push us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/session-manager:latest
+   kubectl rollout restart deployment/session-manager -n fresh-system
+   ```
+
+### Resource Configuration
+
+**Pod Resources** - Edit `session-manager/app.py` lines 67-70:
+```python
+resources=client.V1ResourceRequirements(
+    requests={"memory": "512Mi", "cpu": "500m"},  # Increase for more power
+    limits={"memory": "1Gi", "cpu": "1000m"}
+)
+```
+
+### Persistent Paths Configuration
+
+**Currently Active Paths:**
+- `/app` - Application code and projects
+- `/root` - User home directory and configs
+- `/data/db` - Database and data files
+- `/usr/local` - **System software installations (pip, npm, etc.)**
+- `/opt` - **Optional software packages**
+- `/var/lib` - **Application data and package state**
+
+**Software Installation Persistence:**
+✅ `pip install` packages persist in `/usr/local`  
+✅ `apt install` packages persist in `/var/lib`  
+✅ Custom software in `/opt` persists  
+✅ User configurations in `/root` persist  
+
+**To Enable Additional Paths** - Uncomment in `session-manager/app.py`:
+```python
+# Uncomment these when using compatible Docker image:
+client.V1VolumeMount(
+    name="user-data",
+    mount_path="/etc/supervisor",
+    sub_path="etc/supervisor"
+),
+client.V1VolumeMount(
+    name="user-data",
+    mount_path="/var/log",
+    sub_path="var/log"
+)
 ```
 
 ## 🔧 Troubleshooting

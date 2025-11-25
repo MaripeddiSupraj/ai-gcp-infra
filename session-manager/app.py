@@ -30,7 +30,7 @@ SESSION_TTL = int(os.getenv('SESSION_TTL', 86400))  # 24 hours default
 USER_POD_IMAGE = os.getenv('USER_POD_IMAGE', 'us-central1-docker.pkg.dev/hyperbola-476507/docker-repo/ai-environment:latest')
 USER_POD_PORT = int(os.getenv('USER_POD_PORT', 8080))
 API_KEY = os.getenv('API_KEY', 'change-this-in-production')  # API authentication
-VERSION = '3.1.2'  # CRITICAL FIX: Mount PVC to /app instead of /workspace for data persistence
+VERSION = '3.3.0'  # Production: Added KEDA auto-scaling for resource optimization
 
 # Load k8s config
 try:
@@ -238,10 +238,52 @@ def create_session():
                                     client.V1EnvVar(name="USER_ID", value=user_id)
                                 ],
                                 volume_mounts=[
+                                    # Multiple subPath mounts for different data types
                                     client.V1VolumeMount(
                                         name="user-data",
-                                        mount_path="/app"
-                                    )
+                                        mount_path="/app",
+                                        sub_path="app"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/root",
+                                        sub_path="root"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/data/db",
+                                        sub_path="data/db"
+                                    ),
+                                    # System installation persistence paths
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/usr/local",
+                                        sub_path="usr/local"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/opt",
+                                        sub_path="opt"
+                                    ),
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/var/lib",
+                                        sub_path="var/lib"
+                                    ),
+                                    # Commented out - causes crash with current test image
+                                    # Uncomment when using compatible image
+                                    # client.V1VolumeMount(
+                                    #     name="user-data",
+                                    #     mount_path="/etc/supervisor",
+                                    #     sub_path="etc/supervisor"
+                                    # ),
+                                    # Commented out - interferes with supervisor logs
+                                    # Uncomment when using compatible image
+                                    # client.V1VolumeMount(
+                                    #     name="user-data",
+                                    #     mount_path="/var/log",
+                                    #     sub_path="var/log"
+                                    # )
                                 ]
                             )
                         ],
@@ -266,16 +308,17 @@ def create_session():
             ),
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
+                storage_class_name="premium-rwo",  # SSD storage for better performance
                 resources=client.V1ResourceRequirements(
-                    requests={"storage": "5Gi"}
+                    requests={"storage": "10Gi"}
                 )
             )
         )
         
-        core_v1.create_namespaced_persistent_volume_claim(namespace="default", body=pvc)
+        core_v1.create_namespaced_persistent_volume_claim(namespace="fresh-system", body=pvc)
         logger.info(f"✅ PVC created: pvc-{session_uuid}")
         
-        v1.create_namespaced_deployment(namespace="default", body=deployment)
+        v1.create_namespaced_deployment(namespace="fresh-system", body=deployment)
         logger.info(f"✅ Deployment created: user-{session_uuid}")
         
         # Create ClusterIP service (internal)
@@ -290,7 +333,7 @@ def create_session():
             )
         )
         
-        core_v1.create_namespaced_service(namespace="default", body=service)
+        core_v1.create_namespaced_service(namespace="fresh-system", body=service)
         logger.info(f"✅ Service created: user-{session_uuid}")
         
         # Create Ingress for external access via subdomain
@@ -327,13 +370,52 @@ def create_session():
         )
         
         networking_v1 = client.NetworkingV1Api()
-        networking_v1.create_namespaced_ingress(namespace="default", body=ingress)
+        networking_v1.create_namespaced_ingress(namespace="fresh-system", body=ingress)
         logger.info(f"✅ Ingress created: user-{session_uuid}")
         
-        # NOTE: KEDA ScaledObject removed due to authentication issues
-        # Pods will be manually scaled up on message, and stay running
-        # Use /session/{uuid}/sleep endpoint to manually scale down
-        logger.info(f"ℹ️ KEDA disabled - manual scaling only for: user-{session_uuid}")
+        # Create KEDA ScaledObject for auto-scaling
+        try:
+            scaled_object = {
+                "apiVersion": "keda.sh/v1alpha1",
+                "kind": "ScaledObject",
+                "metadata": {
+                    "name": f"user-{session_uuid}-scaler",
+                    "labels": {"session-uuid": session_uuid}
+                },
+                "spec": {
+                    "scaleTargetRef": {
+                        "name": f"user-{session_uuid}"
+                    },
+                    "minReplicaCount": 0,
+                    "maxReplicaCount": 1,
+                    "pollingInterval": 30,
+                    "cooldownPeriod": 300,
+                    "idleReplicaCount": 0,
+                    "triggers": [{
+                        "type": "redis",
+                        "metadata": {
+                            "address": f"{REDIS_HOST}:6379",
+                            "listName": f"queue:{session_uuid}",
+                            "listLength": "1",
+                            "activationListLength": "1"
+                        },
+                        "authenticationRef": {
+                            "name": "redis-trigger-auth"
+                        }
+                    }]
+                }
+            }
+            
+            custom_api.create_namespaced_custom_object(
+                group="keda.sh",
+                version="v1alpha1",
+                namespace="fresh-system",
+                plural="scaledobjects",
+                body=scaled_object
+            )
+            logger.info(f"✅ KEDA ScaledObject created: user-{session_uuid}-scaler")
+        except Exception as e:
+            logger.warning(f"⚠️ KEDA ScaledObject creation failed (continuing): {str(e)}")
         
         # Store session with TTL
         r.hset(f'session:{session_uuid}', mapping={
@@ -377,12 +459,12 @@ def wake_session(session_uuid):
     
     try:
         # Scale deployment to 1
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         if deployment.spec.replicas == 0:
             deployment.spec.replicas = 1
             v1.patch_namespaced_deployment(
                 name=f"user-{session_uuid}",
-                namespace="default",
+                namespace="fresh-system",
                 body=deployment
             )
             logger.info(f"⏰ Waking up session: {session_uuid}")
@@ -415,7 +497,7 @@ def session_status(session_uuid):
     queue_length = r.llen(f'queue:{session_uuid}')
     
     try:
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         replicas = deployment.status.replicas or 0
     except ApiException as e:
         logger.warning(f"Deployment not found: {session_uuid}")
@@ -458,12 +540,12 @@ def chat_message(session_uuid):
         # WORKAROUND: Manually scale to 1 since KEDA 0→1 scaling doesn't work with auth
         # KEDA will handle 1→0 scaling after cooldown period
         try:
-            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
             if deployment.spec.replicas == 0:
                 deployment.spec.replicas = 1
                 v1.patch_namespaced_deployment(
                     name=f"user-{session_uuid}",
-                    namespace="default",
+                    namespace="fresh-system",
                     body=deployment
                 )
                 logger.info(f"⚡ Manually scaled deployment to 1: user-{session_uuid}")
@@ -490,9 +572,9 @@ def chat_message(session_uuid):
         
         # Try to forward to user pod
         try:
-            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+            deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
             if deployment.status.replicas and deployment.status.replicas > 0:
-                pod_service = f"user-{session_uuid}.default.svc.cluster.local"
+                pod_service = f"user-{session_uuid}.fresh-system.svc.cluster.local"
                 response = requests.post(
                     f"http://{pod_service}:80/chat",
                     json={"message": message},
@@ -541,92 +623,59 @@ def delete_session(session_uuid):
     logger.info(f"🗑️ Deleting session: {session_uuid}")
     
     try:
-        # Backup PVC data before deletion
+        # Backup PVC using VolumeSnapshot (CSI snapshot)
         try:
-            logger.info(f"💾 Starting PVC backup for: {session_uuid}")
+            logger.info(f"💾 Creating VolumeSnapshot for: {session_uuid}")
             
-            # Create backup job to zip and upload data
-            backup_job = client.V1Job(
-                metadata=client.V1ObjectMeta(
-                    name=f"backup-{session_uuid}",
-                    labels={"session-uuid": session_uuid, "job-type": "backup"}
-                ),
-                spec=client.V1JobSpec(
-                    ttl_seconds_after_finished=300,  # Auto-delete after 5 min
-                    template=client.V1PodTemplateSpec(
-                        spec=client.V1PodSpec(
-                            restart_policy="Never",
-                            containers=[
-                                client.V1Container(
-                                    name="backup",
-                                    image="alpine:latest",
-                                    command=["/bin/sh", "-c"],
-                                    args=[
-                                        f"apk add --no-cache zip && "
-                                        f"cd /app && "
-                                        f"zip -r /backup/app-{session_uuid}-$(date +%Y%m%d-%H%M%S).zip . && "
-                                        f"ls -lh /backup/ && "
-                                        f"echo 'Backup completed for {session_uuid}'"
-                                    ],
-                                    volume_mounts=[
-                                        client.V1VolumeMount(
-                                            name="user-data",
-                                            mount_path="/app",
-                                            read_only=True
-                                        ),
-                                        client.V1VolumeMount(
-                                            name="backup-storage",
-                                            mount_path="/backup"
-                                        )
-                                    ]
-                                )
-                            ],
-                            volumes=[
-                                client.V1Volume(
-                                    name="user-data",
-                                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                        claim_name=f"pvc-{session_uuid}"
-                                    )
-                                ),
-                                client.V1Volume(
-                                    name="backup-storage",
-                                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                        claim_name="backup-pvc"  # Shared backup storage
-                                    )
-                                )
-                            ]
-                        )
-                    )
-                )
+            snapshot_body = {
+                "apiVersion": "snapshot.storage.k8s.io/v1",
+                "kind": "VolumeSnapshot",
+                "metadata": {
+                    "name": f"backup-{session_uuid}",
+                    "namespace": "fresh-system"
+                },
+                "spec": {
+                    "volumeSnapshotClassName": "csi-gce-pd-snapshot-class",
+                    "source": {
+                        "persistentVolumeClaimName": f"pvc-{session_uuid}"
+                    }
+                }
+            }
+            
+            custom_api.create_namespaced_custom_object(
+                group="snapshot.storage.k8s.io",
+                version="v1",
+                namespace="fresh-system",
+                plural="volumesnapshots",
+                body=snapshot_body
             )
+            logger.info(f"✅ VolumeSnapshot created: backup-{session_uuid}")
             
-            batch_v1 = client.BatchV1Api()
-            batch_v1.create_namespaced_job(namespace="default", body=backup_job)
-            logger.info(f"✅ Backup job created: backup-{session_uuid}")
-            
-            # Wait for backup to complete (max 60 seconds)
-            import time
-            for i in range(12):  # 12 * 5 = 60 seconds
+            # Wait for snapshot to be ready (max 60 seconds)
+            for i in range(12):
                 time.sleep(5)
                 try:
-                    job = batch_v1.read_namespaced_job(name=f"backup-{session_uuid}", namespace="default")
-                    if job.status.succeeded:
-                        logger.info(f"✅ Backup completed: {session_uuid}")
-                        break
-                    elif job.status.failed:
-                        logger.warning(f"⚠️ Backup failed: {session_uuid}")
+                    snapshot = custom_api.get_namespaced_custom_object(
+                        group="snapshot.storage.k8s.io",
+                        version="v1",
+                        namespace="fresh-system",
+                        plural="volumesnapshots",
+                        name=f"backup-{session_uuid}"
+                    )
+                    if snapshot.get('status', {}).get('readyToUse'):
+                        logger.info(f"✅ Snapshot ready: backup-{session_uuid}")
                         break
                 except:
                     pass
             
         except Exception as e:
-            logger.warning(f"⚠️ Backup failed (continuing with deletion): {str(e)}")
-        
-        # Delete deployment
+            logger.warning(f"⚠️ Snapshot failed (continuing with deletion): {str(e)}")
+
+                # Delete deployment
         try:
             v1.delete_namespaced_deployment(
                 name=f"user-{session_uuid}",
-                namespace="default",
+                namespace="fresh-system",
                 body=client.V1DeleteOptions(grace_period_seconds=30)
             )
             logger.info(f"✅ Deployment deleted: user-{session_uuid}")
@@ -639,7 +688,7 @@ def delete_session(session_uuid):
         try:
             core_v1.delete_namespaced_service(
                 name=f"user-{session_uuid}",
-                namespace="default"
+                namespace="fresh-system"
             )
             logger.info(f"✅ Service deleted: user-{session_uuid}")
         except ApiException as e:
@@ -652,7 +701,7 @@ def delete_session(session_uuid):
             networking_v1 = client.NetworkingV1Api()
             networking_v1.delete_namespaced_ingress(
                 name=f"user-{session_uuid}",
-                namespace="default"
+                namespace="fresh-system"
             )
             logger.info(f"✅ Ingress deleted: user-{session_uuid}")
         except ApiException as e:
@@ -665,7 +714,7 @@ def delete_session(session_uuid):
             custom_api.delete_namespaced_custom_object(
                 group="keda.sh",
                 version="v1alpha1",
-                namespace="default",
+                namespace="fresh-system",
                 plural="scaledobjects",
                 name=f"user-{session_uuid}-scaler"
             )
@@ -675,11 +724,11 @@ def delete_session(session_uuid):
                 raise
             logger.warning(f"KEDA ScaledObject not found: user-{session_uuid}-scaler")
         
-        # Delete PVC
+        # Delete PVC (now safe since snapshot is created)
         try:
             core_v1.delete_namespaced_persistent_volume_claim(
                 name=f"pvc-{session_uuid}",
-                namespace="default"
+                namespace="fresh-system"
             )
             logger.info(f"✅ PVC deleted: pvc-{session_uuid}")
         except ApiException as e:
@@ -728,7 +777,7 @@ def scale_session(session_uuid):
         raise ValueError("scale must be 'up' or 'down'")
     
     try:
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         
         if scale_type == 'up':
             # Scale up: 1Gi RAM, 1 CPU
@@ -747,7 +796,7 @@ def scale_session(session_uuid):
         
         v1.patch_namespaced_deployment(
             name=f"user-{session_uuid}",
-            namespace="default",
+            namespace="fresh-system",
             body=deployment
         )
         
@@ -785,11 +834,11 @@ def sleep_session(session_uuid):
         r.delete(f'queue:{session_uuid}')
         
         # Scale deployment to 0
-        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="default")
+        deployment = v1.read_namespaced_deployment(name=f"user-{session_uuid}", namespace="fresh-system")
         deployment.spec.replicas = 0
         v1.patch_namespaced_deployment(
             name=f"user-{session_uuid}",
-            namespace="default",
+            namespace="fresh-system",
             body=deployment
         )
         
