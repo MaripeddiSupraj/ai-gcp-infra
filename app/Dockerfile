@@ -81,8 +81,31 @@ COPY --from=vscode-builder /usr/lib/code-server /usr/lib/code-server
 # Set Python path
 ENV PATH=/root/.local/bin:$PATH
 
-# Create application directories
-RUN mkdir -p /app /data/db /var/log/supervisor
+# Create application directories and persistence mount points
+RUN mkdir -p /app /data/db /var/log/supervisor \
+    /usr/local/persistent \
+    /opt/user-packages \
+    /var/lib/dpkg/persistent
+
+# Create package persistence hooks
+RUN echo '#!/bin/bash\n\
+# Persistent apt wrapper\n\
+if [[ "$1" == "install" ]]; then\n\
+    /usr/bin/apt "$@"\n\
+    # Save installed packages\n\
+    shift\n\
+    for pkg in "$@"; do\n\
+        [[ "$pkg" != "-y" ]] && echo "$pkg" >> /usr/local/persistent/installed-packages.txt\n\
+    done\n\
+    sort -u /usr/local/persistent/installed-packages.txt -o /usr/local/persistent/installed-packages.txt\n\
+else\n\
+    /usr/bin/apt "$@"\n\
+fi' > /usr/local/bin/persistent-apt && chmod +x /usr/local/bin/persistent-apt
+
+# Set up package persistence aliases
+RUN echo 'alias apt="sudo /usr/local/bin/persistent-apt"' >> /etc/bash.bashrc && \
+    echo 'alias pip="pip install --user"' >> /etc/bash.bashrc && \
+    echo 'export NPM_CONFIG_PREFIX=/usr/local' >> /etc/bash.bashrc
 
 WORKDIR /app
 

@@ -1,0 +1,32 @@
+---
+# Enhanced Persistent Storage for Full System Persistence
+# Single PVC with multiple subPath mounts
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: enhanced-user-pvc
+  namespace: default
+  labels:
+    app: ai-environment
+    component: enhanced-storage
+    persistence-type: full-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15Gi
+  storageClassName: standard-rwo  # Use balanced-rwo for better performance
+
+---
+# Storage Class for better performance (optional)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: balanced-rwo
+provisioner: pd.csi.storage.gke.io
+parameters:
+  type: pd-balanced  # Better performance than pd-standard
+  replication-type: none
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer

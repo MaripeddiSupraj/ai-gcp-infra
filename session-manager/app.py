@@ -238,9 +238,47 @@ def create_session():
                                     client.V1EnvVar(name="USER_ID", value=user_id)
                                 ],
                                 volume_mounts=[
+                                    # Core application data
                                     client.V1VolumeMount(
                                         name="user-data",
-                                        mount_path="/app"
+                                        mount_path="/app",
+                                        sub_path="app"
+                                    ),
+                                    # User home (Python venv, configs)
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/root",
+                                        sub_path="root"
+                                    ),
+                                    # System packages & user installs
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/usr/local",
+                                        sub_path="usr/local"
+                                    ),
+                                    # Package database for apt persistence
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/var/lib/dpkg",
+                                        sub_path="var/lib/dpkg"
+                                    ),
+                                    # Optional software
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/opt",
+                                        sub_path="opt"
+                                    ),
+                                    # MongoDB data
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/data/db",
+                                        sub_path="data/db"
+                                    ),
+                                    # Logs
+                                    client.V1VolumeMount(
+                                        name="user-data",
+                                        mount_path="/var/log",
+                                        sub_path="var/log"
                                     )
                                 ]
                             )
@@ -267,7 +305,7 @@ def create_session():
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 resources=client.V1ResourceRequirements(
-                    requests={"storage": "5Gi"}
+                    requests={"storage": "15Gi"}
                 )
             )
         )

@@ -1,0 +1,240 @@
+# ============================================================================
+# KUBERNETES CONFIGURATION FOR EMERGENT AGENT ENVIRONMENT
+# ============================================================================
+# This is where the PVC magic happens!
+# ============================================================================
+
+---
+# ============================================================================
+# 1. PERSISTENT VOLUME CLAIM (PVC)
+# ============================================================================
+# This requests a 10GB persistent disk from the cloud provider (GCP)
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-pvc-{{ run_id }}
+  namespace: emergent-agents
+  labels:
+    app: emergent-agent
+    run-id: "{{ run_id }}"
+spec:
+  accessModes:
+    - ReadWriteOnce              # Single pod can mount (read/write)
+  storageClassName: ssd-storage  # GCP SSD Persistent Disk
+  resources:
+    requests:
+      storage: 10Gi              # Request 10GB
+
+---
+# ============================================================================
+# 2. POD SPECIFICATION
+# ============================================================================
+# This creates the actual container with PVC mounts
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-env-{{ run_id }}
+  namespace: emergent-agents
+  labels:
+    app: emergent-agent
+    run-id: "{{ run_id }}"
+spec:
+  # ========================================================================
+  # Container Definition
+  # ========================================================================
+  containers:
+  - name: agent-env
+    image: emergent/agent-image:latest
+    imagePullPolicy: Always
+    
+    # Environment variables
+    env:
+    - name: run_id
+      value: "{{ run_id }}"
+    - name: code_server_password
+      valueFrom:
+        secretKeyRef:
+          name: agent-secrets
+          key: code_server_password
+    - name: preview_endpoint
+      value: "https://{{ subdomain }}.preview.emergentagent.com"
+    - name: base_url
+      value: "https://api.emergent.sh"
+    - name: monitor_polling_interval
+      value: "30"
+    - name: integration_proxy_url
+      value: "https://integration-proxy.emergent.sh"
+    - name: ENABLE_RELOAD
+      value: "true"
+    
+    # Resource limits
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1000m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
+    
+    # Ports
+    ports:
+    - containerPort: 3000
+      name: frontend
+      protocol: TCP
+    - containerPort: 8001
+      name: backend
+      protocol: TCP
+    - containerPort: 8010
+      name: plugin-api
+      protocol: TCP
+    - containerPort: 27017
+      name: mongodb
+      protocol: TCP
+    
+    # ======================================================================
+    # THE KEY PART: VOLUME MOUNTS FROM PVC
+    # ======================================================================
+    # This is where we mount specific subdirectories from the PVC
+    # into different paths in the container
+    
+    volumeMounts:
+    # Mount 1: Application workspace
+    - name: persistent-storage
+      mountPath: /app
+      subPath: app                   # PVC:/app → Container:/app
+    
+    # Mount 2: User home directory (Python venv, configs)
+    - name: persistent-storage
+      mountPath: /root
+      subPath: root                  # PVC:/root → Container:/root
+    
+    # Mount 3: Supervisor service configs
+    - name: persistent-storage
+      mountPath: /etc/supervisor
+      subPath: etc/supervisor        # PVC:/etc/supervisor → Container:/etc/supervisor
+    
+    # Mount 4: Application logs
+    - name: persistent-storage
+      mountPath: /var/log
+      subPath: var/log               # PVC:/var/log → Container:/var/log
+    
+    # Mount 5: MongoDB data directory
+    - name: persistent-storage
+      mountPath: /data/db
+      subPath: data/db               # PVC:/data/db → Container:/data/db
+    
+    # Liveness probe (check if container is alive)
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8010
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    
+    # Readiness probe (check if container is ready)
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8010
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+  
+  # ========================================================================
+  # Volume Definition
+  # ========================================================================
+  # This references the PVC created above
+  
+  volumes:
+  - name: persistent-storage
+    persistentVolumeClaim:
+      claimName: agent-pvc-{{ run_id }}    # Link to PVC
+  
+  # ========================================================================
+  # Additional Pod Settings
+  # ========================================================================
+  
+  restartPolicy: Always
+  
+  # Service account for K8s API access (if needed)
+  # serviceAccountName: agent-service-account
+  
+  # Node selector (optional - for specific node types)
+  # nodeSelector:
+  #   node-type: agent-nodes
+
+---
+# ============================================================================
+# 3. SERVICE (OPTIONAL)
+# ============================================================================
+# Expose the pod via a ClusterIP service
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-service-{{ run_id }}
+  namespace: emergent-agents
+spec:
+  selector:
+    run-id: "{{ run_id }}"
+  ports:
+  - name: frontend
+    port: 3000
+    targetPort: 3000
+  - name: backend
+    port: 8001
+    targetPort: 8001
+  - name: plugin-api
+    port: 8010
+    targetPort: 8010
+  type: ClusterIP
+
+---
+# ============================================================================
+# 4. INGRESS (OPTIONAL)
+# ============================================================================
+# Route external traffic to the pod
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-ingress-{{ run_id }}
+  namespace: emergent-agents
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - "{{ subdomain }}.preview.emergentagent.com"
+    secretName: agent-tls-{{ run_id }}
+  rules:
+  - host: "{{ subdomain }}.preview.emergentagent.com"
+    http:
+      paths:
+      # Backend API routes (with /api prefix)
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: agent-service-{{ run_id }}
+            port:
+              number: 8001
+      # Frontend routes (everything else)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: agent-service-{{ run_id }}
+            port:
+              number: 3000
+
+# ============================================================================
+# END OF KUBERNETES CONFIG
+# ============================================================================
