@@ -242,43 +242,43 @@ def create_session():
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/app",
-                                        subPath="app"
+                                        sub_path="app"
                                     ),
                                     # User home (Python venv, configs)
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/root",
-                                        subPath="root"
+                                        sub_path="root"
                                     ),
                                     # System packages & user installs
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/usr/local",
-                                        subPath="usr/local"
+                                        sub_path="usr/local"
                                     ),
                                     # Package database for apt persistence
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/var/lib/dpkg",
-                                        subPath="var/lib/dpkg"
+                                        sub_path="var/lib/dpkg"
                                     ),
                                     # Optional software
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/opt",
-                                        subPath="opt"
+                                        sub_path="opt"
                                     ),
                                     # MongoDB data
                                     client.V1VolumeMount(
                                         name="user-data",
                                         mount_path="/data/db",
-                                        subPath="data/db"
+                                        sub_path="data/db"
                                     ),
-                                    # Logs
+                                    # Logs (specific subdirectory to avoid conflicts)
                                     client.V1VolumeMount(
                                         name="user-data",
-                                        mount_path="/var/log",
-                                        subPath="var/log"
+                                        mount_path="/var/log/app",
+                                        sub_path="var/log/app"
                                     )
                                 ]
                             )
