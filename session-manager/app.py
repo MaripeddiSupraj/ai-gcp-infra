@@ -230,8 +230,8 @@ def create_session():
                                 image=USER_POD_IMAGE,
                                 ports=[client.V1ContainerPort(container_port=USER_POD_PORT)],
                                 resources=client.V1ResourceRequirements(
-                                    requests={"memory": "256Mi", "cpu": "250m"},
-                                    limits={"memory": "512Mi", "cpu": "500m"}
+                                    requests={"memory": "512Mi", "cpu": "500m"},
+                                    limits={"memory": "2Gi", "cpu": "2000m"}
                                 ),
                                 env=[
                                     client.V1EnvVar(name="SESSION_UUID", value=session_uuid),
@@ -776,10 +776,10 @@ def scale_session(session_uuid):
             )
             logger.info(f"⬆️ Scaling up: {session_uuid}")
         else:
-            # Scale down: 512Mi RAM, 0.5 CPU
+            # Scale down: 512Mi RAM, 0.5 CPU (minimum)
             deployment.spec.template.spec.containers[0].resources = client.V1ResourceRequirements(
                 requests={"memory": "512Mi", "cpu": "500m"},
-                limits={"memory": "1Gi", "cpu": "1000m"}
+                limits={"memory": "2Gi", "cpu": "2000m"}
             )
             logger.info(f"⬇️ Scaling down: {session_uuid}")
         
