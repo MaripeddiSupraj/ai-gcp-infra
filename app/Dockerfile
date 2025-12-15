@@ -26,6 +26,7 @@ ENV NODE_VERSION=20.19.6
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     xz-utils \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js v20.19.6 (exact)
