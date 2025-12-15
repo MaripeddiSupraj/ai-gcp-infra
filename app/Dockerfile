@@ -21,13 +21,24 @@ FROM ubuntu:24.04 AS node-builder
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_VERSION=20.19.6
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    nodejs \
-    npm \
     curl \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js v20.19.6 (exact)
+RUN curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz \
+    | tar -xJ -C /usr/local --strip-components=1
+
+# Install npm v10.8.2 (exact)
+RUN npm install -g npm@10.8.2
+
+# Verify versions
+RUN node -v && npm -v
+
+# Install Yarn
 RUN npm install -g yarn
 
 # Build stage for VSCode Server
@@ -61,7 +72,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     supervisor \
     python3 \
-    nodejs \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
@@ -69,7 +79,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy Python packages from builder
 COPY --from=python-builder /root/.local /root/.local
 
-# Copy Yarn from builder
+# Copy Node.js and npm from builder
+COPY --from=node-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-builder /usr/local/bin/npm /usr/local/bin/npm
+COPY --from=node-builder /usr/local/bin/npx /usr/local/bin/npx
 COPY --from=node-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=node-builder /usr/local/bin/yarn /usr/local/bin/yarn
 COPY --from=node-builder /usr/local/bin/yarnpkg /usr/local/bin/yarnpkg
